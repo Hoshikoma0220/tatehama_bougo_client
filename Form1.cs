@@ -23,6 +23,13 @@ namespace tatehama_bougo_client
         {
             InitializeComponent();
             Load += Form1_Load;
+            FormClosing += Form1_FormClosing;
+        }
+
+        private void Form1_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            // アプリケーション終了時に非常ブレーキを確実に解除
+            EmergencyBrakeController.OnApplicationExit();
         }
 
         private void Form1_Load(object sender, EventArgs e)

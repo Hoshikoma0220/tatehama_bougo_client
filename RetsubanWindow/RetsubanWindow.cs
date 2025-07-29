@@ -97,6 +97,10 @@ namespace TatehamaATS_v1.RetsubanWindow
             if (!string.IsNullOrEmpty(retsuban) && retsuban != "9999" && retsuban != "0000")
             {
                 System.Diagnostics.Debug.WriteLine($"列車番号設定完了: {retsuban}");
+                
+                // 非常ブレーキを解除
+                EmergencyBrakeController.OnTrainNumberSet(retsuban);
+                
                 // メインフォームの音声停止と完了音再生
                 Form1.StopSoundLoop();
                 Form1.PlayCompletionSound();
