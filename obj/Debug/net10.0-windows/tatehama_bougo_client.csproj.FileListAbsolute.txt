@@ -1,0 +1,16 @@
+D:\tatehama\NEW\tatehama_bougo_client\bin\Debug\net10.0-windows\tatehama_bougo_client.exe
+D:\tatehama\NEW\tatehama_bougo_client\bin\Debug\net10.0-windows\tatehama_bougo_client.deps.json
+D:\tatehama\NEW\tatehama_bougo_client\bin\Debug\net10.0-windows\tatehama_bougo_client.runtimeconfig.json
+D:\tatehama\NEW\tatehama_bougo_client\bin\Debug\net10.0-windows\tatehama_bougo_client.dll
+D:\tatehama\NEW\tatehama_bougo_client\bin\Debug\net10.0-windows\tatehama_bougo_client.pdb
+D:\tatehama\NEW\tatehama_bougo_client\obj\Debug\net10.0-windows\tatehama_bougo_client.RetsubanWindow.RetsubanResource.resources
+D:\tatehama\NEW\tatehama_bougo_client\obj\Debug\net10.0-windows\tatehama_bougo_client.csproj.GenerateResource.cache
+D:\tatehama\NEW\tatehama_bougo_client\obj\Debug\net10.0-windows\tatehama_bougo_client.GeneratedMSBuildEditorConfig.editorconfig
+D:\tatehama\NEW\tatehama_bougo_client\obj\Debug\net10.0-windows\tatehama_bougo_client.AssemblyInfoInputs.cache
+D:\tatehama\NEW\tatehama_bougo_client\obj\Debug\net10.0-windows\tatehama_bougo_client.AssemblyInfo.cs
+D:\tatehama\NEW\tatehama_bougo_client\obj\Debug\net10.0-windows\tatehama_bougo_client.csproj.CoreCompileInputs.cache
+D:\tatehama\NEW\tatehama_bougo_client\obj\Debug\net10.0-windows\tatehama_bougo_client.dll
+D:\tatehama\NEW\tatehama_bougo_client\obj\Debug\net10.0-windows\refint\tatehama_bougo_client.dll
+D:\tatehama\NEW\tatehama_bougo_client\obj\Debug\net10.0-windows\tatehama_bougo_client.pdb
+D:\tatehama\NEW\tatehama_bougo_client\obj\Debug\net10.0-windows\tatehama_bougo_client.genruntimeconfig.cache
+D:\tatehama\NEW\tatehama_bougo_client\obj\Debug\net10.0-windows\ref\tatehama_bougo_client.dll
