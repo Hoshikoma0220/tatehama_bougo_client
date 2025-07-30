@@ -17,7 +17,10 @@ namespace tatehama_bougo_client
         private System.Threading.Timer reconnectTimer;
         private System.Threading.Timer dataRequestTimer; // 定期データ要求用
         private System.Threading.Timer connectionCheckTimer; // 接続状態チェック用
+        private System.Threading.Timer disconnectionTimer; // 切断検知用タイマー（5秒）
         private DateTime lastDataReceived = DateTime.MinValue;
+        private bool isInScenario = false; // シナリオ中かどうかの判定
+        private string lastTrainDiaName = ""; // 前回の列車番号
         
         public event Action<TrainCrewAPI.TrainCrewStateData> OnDataReceived;
         public event Action<string> OnConnectionStatusChanged;
@@ -78,8 +81,19 @@ namespace tatehama_bougo_client
                 {
                     isConnected = true;
                     lastDataReceived = DateTime.Now;
-                    System.Diagnostics.Debug.WriteLine("TrainCrewに接続しました");
+                    System.Diagnostics.Debug.WriteLine("✅ TrainCrewに再接続しました - 故障音停止");
                     OnConnectionStatusChanged?.Invoke("接続完了 - データ要求送信中");
+                    
+                    // 再接続時に故障音を停止
+                    if (isInScenario)
+                    {
+                        System.Diagnostics.Debug.WriteLine("🔇 再接続により故障音ループを停止");
+                        Form1.StopKosyouSound();
+                        EmergencyBrakeController.ReleaseEmergencyBrake();
+                    }
+                    
+                    // 切断検知タイマーをリセット
+                    ResetDisconnectionTimer();
                     
                     // 接続後すぐにデータ要求を送信
                     RequestAllData();
@@ -109,6 +123,9 @@ namespace tatehama_bougo_client
                     {
                         lastDataReceived = DateTime.Now; // データ受信時刻を更新
                         
+                        // 切断検知タイマーをリセット（データを受信したので接続中）
+                        ResetDisconnectionTimer();
+                        
                         System.Diagnostics.Debug.WriteLine($"=== 生データ受信 ===");
                         System.Diagnostics.Debug.WriteLine($"データサイズ: {e.Data.Length}文字");
                         System.Diagnostics.Debug.WriteLine($"データ形式: {(e.Data.TrimStart().StartsWith("{") ? "JSON" : "TEXT")}");
@@ -129,6 +146,10 @@ namespace tatehama_bougo_client
                                 if (wrapperState?.data != null)
                                 {
                                     System.Diagnostics.Debug.WriteLine($"✅ Wrapper JSON解析成功 - 列車: {wrapperState.data.myTrainData?.diaName ?? "N/A"}");
+                                    
+                                    // 走行中判定を更新
+                                    UpdateScenarioState(wrapperState.data);
+                                    
                                     OnDataReceived?.Invoke(wrapperState.data);
                                     return;
                                 }
@@ -138,6 +159,10 @@ namespace tatehama_bougo_client
                                 if (stateData != null)
                                 {
                                     System.Diagnostics.Debug.WriteLine($"✅ Direct JSON解析成功 - 列車: {stateData.myTrainData?.diaName ?? "N/A"}");
+                                    
+                                    // 走行中判定を更新
+                                    UpdateScenarioState(stateData);
+                                    
                                     OnDataReceived?.Invoke(stateData);
                                     return;
                                 }
@@ -188,20 +213,27 @@ namespace tatehama_bougo_client
                     isConnected = false;
                     dataRequestTimer?.Dispose();
                     connectionCheckTimer?.Dispose();
-                    System.Diagnostics.Debug.WriteLine($"WebSocketエラー: {e.Message}");
-                    OnConnectionStatusChanged?.Invoke($"エラー: {e.Message} - 3秒後に再接続");
                     
-                    // エラー発生時は短い間隔で再接続を試行
+                    // 切断検知タイマーを開始（シナリオ中のみ）
+                    if (isInScenario)
+                    {
+                        StartDisconnectionTimer();
+                    }
+                    
+                    System.Diagnostics.Debug.WriteLine($"WebSocketエラー: {e.Message}");
+                    OnConnectionStatusChanged?.Invoke($"エラー: {e.Message} - 100ms後に再接続");
+                    
+                    // エラー発生時は100msで即座に再接続を試行
                     if (shouldReconnect)
                     {
                         reconnectTimer?.Dispose();
                         reconnectTimer = new System.Threading.Timer(
                             _ => 
                             {
-                                System.Diagnostics.Debug.WriteLine("エラー後の自動再接続を実行中...");
+                                System.Diagnostics.Debug.WriteLine("エラー後の高速再接続を実行中...");
                                 Connect();
                             }, 
-                            null, 3000, System.Threading.Timeout.Infinite);
+                            null, 100, System.Threading.Timeout.Infinite);
                     }
                 };
 
@@ -210,21 +242,28 @@ namespace tatehama_bougo_client
                     isConnected = false;
                     dataRequestTimer?.Dispose();
                     connectionCheckTimer?.Dispose();
-                    System.Diagnostics.Debug.WriteLine($"TrainCrewとの接続が切れました。Code: {e.Code}, Reason: {e.Reason}");
-                    OnConnectionStatusChanged?.Invoke($"切断 (Code: {e.Code}) - 3秒後に再接続");
                     
-                    // 自動再接続を開始（短い間隔で）
+                    // 切断検知タイマーを開始（シナリオ中のみ）
+                    if (isInScenario)
+                    {
+                        StartDisconnectionTimer();
+                    }
+                    
+                    System.Diagnostics.Debug.WriteLine($"TrainCrewとの接続が切れました。Code: {e.Code}, Reason: {e.Reason}");
+                    OnConnectionStatusChanged?.Invoke($"切断 (Code: {e.Code}) - 500ms後に再接続");
+                    
+                    // 自動再接続を開始（500msの短い間隔で）
                     if (shouldReconnect)
                     {
-                        System.Diagnostics.Debug.WriteLine("3秒後に自動再接続を開始します");
+                        System.Diagnostics.Debug.WriteLine("500ms後に高速自動再接続を開始します");
                         reconnectTimer?.Dispose();
                         reconnectTimer = new System.Threading.Timer(
                             _ => 
                             {
-                                System.Diagnostics.Debug.WriteLine("自動再接続を実行中...");
+                                System.Diagnostics.Debug.WriteLine("高速自動再接続を実行中...");
                                 Connect();
                             }, 
-                            null, 3000, System.Threading.Timeout.Infinite);
+                            null, 500, System.Threading.Timeout.Infinite);
                     }
                 };
 
@@ -349,6 +388,70 @@ namespace tatehama_bougo_client
                 .Where(tc => tc.On && tc.Last == myTrainName)
                 .Select(tc => tc.Name)
                 .ToList();
+        }
+
+        // 走行中状態の更新
+        private void UpdateScenarioState(TrainCrewAPI.TrainCrewStateData data)
+        {
+            if (data?.myTrainData?.diaName != null)
+            {
+                string currentTrainDiaName = data.myTrainData.diaName;
+                
+                // 列車番号が有効で、前回と異なる場合はシナリオ中と判定
+                bool wasInScenario = isInScenario;
+                isInScenario = !string.IsNullOrEmpty(currentTrainDiaName) && 
+                              currentTrainDiaName != "N/A" && 
+                              currentTrainDiaName != "JSON解析エラー" &&
+                              !currentTrainDiaName.Contains("テキスト受信");
+                
+                if (wasInScenario != isInScenario)
+                {
+                    System.Diagnostics.Debug.WriteLine($"走行状態変更: {(isInScenario ? "シナリオ中" : "待機中")} - 列車番号: {currentTrainDiaName}");
+                }
+                
+                lastTrainDiaName = currentTrainDiaName;
+            }
+        }
+
+        // 切断検知タイマーをリセット
+        private void ResetDisconnectionTimer()
+        {
+            disconnectionTimer?.Dispose();
+            disconnectionTimer = null;
+        }
+
+        // 切断検知タイマーを開始（5秒後に故障音）
+        private void StartDisconnectionTimer()
+        {
+            disconnectionTimer?.Dispose();
+            disconnectionTimer = new System.Threading.Timer(
+                _ => OnConnectionFailure(),
+                null,
+                5000, // 5秒後
+                System.Threading.Timeout.Infinite
+            );
+            System.Diagnostics.Debug.WriteLine("🚨 切断検知タイマー開始（5秒）");
+        }
+
+        // 接続失敗時の処理（5秒経過後）
+        private void OnConnectionFailure()
+        {
+            if (isInScenario)
+            {
+                System.Diagnostics.Debug.WriteLine("🚨🚨 5秒間切断継続 - 故障音開始 & 非常ブレーキ");
+                
+                // 故障音再生開始
+                Form1.PlayKosyouSound();
+                
+                // 非常ブレーキ作動
+                EmergencyBrakeController.ApplyEmergencyBrake();
+                
+                OnConnectionStatusChanged?.Invoke("🚨 故障検知: 5秒間通信断絶");
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine("待機中のため故障音は再生しません");
+            }
         }
 
         public void Disconnect()

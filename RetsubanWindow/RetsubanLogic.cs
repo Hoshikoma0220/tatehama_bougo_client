@@ -254,8 +254,8 @@ namespace TatehamaATS_v1.RetsubanWindow
                     if (nowRetsuSetting)
                     {
                         var pattern = @"^(回|試|臨)?([0-9]{3,4})(A|B|C|K|X|Y|Z|AX|BX|CX|KX|AY|BY|CY|KY|AZ|BZ|CZ|KZ)?$";
-                        // 正規表現パターンの定義
-                        if (Regex.IsMatch(NewRetsuban, pattern))
+                        // 正規表現パターンの定義（9999も有効な列車番号として処理）
+                        if (Regex.IsMatch(NewRetsuban, pattern) || NewRetsuban == "9999")
                         {
                             Retsuban = NewRetsuban;
                             SavedRetsuban = Retsuban; // 列車番号を保存

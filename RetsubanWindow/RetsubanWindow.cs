@@ -94,7 +94,8 @@ namespace TatehamaATS_v1.RetsubanWindow
             LCDLogic?.SetRetsuban(retsuban);     // LCDLogicへの伝播
             
             // 列番設定完了時にForm1の音声管理を呼び出し
-            if (!string.IsNullOrEmpty(retsuban) && retsuban != "9999" && retsuban != "0000")
+            // 9999も有効な列車番号として扱う（0000は除外）
+            if (!string.IsNullOrEmpty(retsuban) && retsuban != "0000")
             {
                 System.Diagnostics.Debug.WriteLine($"列車番号設定完了: {retsuban}");
                 

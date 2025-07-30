@@ -4,6 +4,7 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Media;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using TakumiteAudioWrapper;
@@ -14,13 +15,31 @@ namespace tatehama_bougo_client
 {
     public partial class Form1 : Form
     {
+        // グローバルホットキー用のWinAPI宣言
+        [DllImport("user32.dll")]
+        private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, int vk);
+
+        [DllImport("user32.dll")]
+        private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
+        private const int HOTKEY_ID_F4 = 2; // F4キー用ホットキーID
+        private const uint VK_F4 = 0x73; // F4キーのVirtual Key Code
+        
         private PictureBox retsubanButton;
         private AudioManager audioManager;
         private AudioWrapper bougomusenno;
+        private AudioWrapper bougo; // F4キー用の防護音声
         private AudioWrapper set_trainnum;
         private AudioWrapper set_complete;
+        private AudioWrapper kosyou; // 故障音声
+        private AudioWrapper kosyou_koe; // 故障音声（音声）
         private static bool shouldPlayLoop = true;
         private bool loopStarted = false;
+        private static bool shouldPlayKosyouLoop = false; // 故障音ループ制御
+        private bool kosyouLoopStarted = false; // 故障音ループ開始状態
+        private static bool shouldPlayBougoLoop = false; // 防護音ループ制御（F4キー用）
+        private bool bougoLoopStarted = false; // 防護音ループ開始状態
+        private static bool isBougoActive = false; // 防護無線発砲状態
         private static readonly object audioLock = new object();
 
         // TrainCrew連携関連
@@ -36,15 +55,29 @@ namespace tatehama_bougo_client
             InitializeComponent();
             Load += Form1_Load;
             FormClosing += Form1_FormClosing;
+            KeyPreview = true; // キーイベントを受け取るために必要
+            KeyDown += Form1_KeyDown; // F4キー処理用
             LoadZoneMappings();
+            
+            // グローバルホットキーを登録
+            RegisterHotKey(this.Handle, HOTKEY_ID_F4, 0, (int)VK_F4);
             
             // TrainCrew接続はLoad時に行う（フォーム表示を優先）
         }
 
         private void Form1_FormClosing(object sender, FormClosingEventArgs e)
         {
+            // グローバルホットキーを解除
+            UnregisterHotKey(this.Handle, HOTKEY_ID_F4);
+            
             // アプリケーション終了時に非常ブレーキを確実に解除
             EmergencyBrakeController.OnApplicationExit();
+            
+            // 全ての音声ループを停止
+            shouldPlayLoop = false;
+            shouldPlayKosyouLoop = false; 
+            shouldPlayBougoLoop = false;
+            isBougoActive = false;
             
             // TrainCrewクライアントを安全に切断
             try
@@ -54,6 +87,69 @@ namespace tatehama_bougo_client
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"TrainCrewクライアント切断エラー: {ex.Message}");
+            }
+        }
+
+        // WndProcをオーバーライドしてホットキーメッセージを処理
+        protected override void WndProc(ref Message m)
+        {
+            const int WM_HOTKEY = 0x0312;
+            if (m.Msg == WM_HOTKEY)
+            {
+                int id = m.WParam.ToInt32();
+                if (id == HOTKEY_ID_F4)
+                {
+                    HandleF4KeyPress();
+                }
+            }
+            base.WndProc(ref m);
+        }
+
+        private void HandleF4KeyPress()
+        {
+            System.Diagnostics.Debug.WriteLine("🔥 グローバルF4キーが押されました - 防護無線制御");
+            
+            lock (audioLock)
+            {
+                if (!isBougoActive)
+                {
+                    // 防護無線発砲開始
+                    System.Diagnostics.Debug.WriteLine("🚨 防護無線発砲開始");
+                    isBougoActive = true;
+                    
+                    // 他の音声を停止
+                    shouldPlayLoop = false;
+                    shouldPlayKosyouLoop = false;
+                    
+                    // PlayLoopで継続再生
+                    bougo?.PlayLoop(1.0f);
+                }
+                else
+                {
+                    // 防護無線停止
+                    System.Diagnostics.Debug.WriteLine("🔴 防護無線停止");
+                    isBougoActive = false;
+                    
+                    // 防護無線を停止
+                    bougo?.Stop();
+                    
+                    // 通常音声ループを再開
+                    shouldPlayLoop = true;
+                    if (!loopStarted)
+                    {
+                        StartSoundLoop();
+                        loopStarted = true;
+                    }
+                }
+            }
+        }
+
+        private void Form1_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.F4)
+            {
+                HandleF4KeyPress();
+                e.Handled = true;
             }
         }
 
@@ -95,19 +191,28 @@ namespace tatehama_bougo_client
             // 音声管理初期化
             audioManager = new AudioManager();
             bougomusenno = audioManager.AddAudio("Sound/bougomusenno.wav", 1.0f, TakumiteAudioWrapper.AudioType.MainLoop);
+            bougo = audioManager.AddAudio("Sound/bougo.wav", 1.0f, TakumiteAudioWrapper.AudioType.MainLoop);
             set_trainnum = audioManager.AddAudio("Sound/set_trainnum.wav", 1.0f, TakumiteAudioWrapper.AudioType.MainLoop);
             set_complete = audioManager.AddAudio("Sound/set_complete.wav", 1.0f, TakumiteAudioWrapper.AudioType.System);
+            kosyou = audioManager.AddAudio("Sound/kosyou.wav", 1.0f, TakumiteAudioWrapper.AudioType.System);
+            kosyou_koe = audioManager.AddAudio("Sound/kosyou_koe.wav", 1.0f, TakumiteAudioWrapper.AudioType.System);
             
             // 音声ファイルの存在確認
             System.Diagnostics.Debug.WriteLine("=== 音声ファイル確認 ===");
             var exeDir = System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
             var bougoPath = System.IO.Path.Combine(exeDir, "Sound/bougomusenno.wav");
+            var bougoF4Path = System.IO.Path.Combine(exeDir, "Sound/bougo.wav");
             var trainnumPath = System.IO.Path.Combine(exeDir, "Sound/set_trainnum.wav");
             var completePath = System.IO.Path.Combine(exeDir, "Sound/set_complete.wav");
+            var kosyouPath = System.IO.Path.Combine(exeDir, "Sound/kosyou.wav");
+            var kosyouKoePath = System.IO.Path.Combine(exeDir, "Sound/kosyou_koe.wav");
             
             System.Diagnostics.Debug.WriteLine($"防護無線: {bougoPath} - {System.IO.File.Exists(bougoPath)}");
+            System.Diagnostics.Debug.WriteLine($"防護音F4: {bougoF4Path} - {System.IO.File.Exists(bougoF4Path)}");
             System.Diagnostics.Debug.WriteLine($"列車番号: {trainnumPath} - {System.IO.File.Exists(trainnumPath)}");
             System.Diagnostics.Debug.WriteLine($"完了音: {completePath} - {System.IO.File.Exists(completePath)}");
+            System.Diagnostics.Debug.WriteLine($"故障音: {kosyouPath} - {System.IO.File.Exists(kosyouPath)}");
+            System.Diagnostics.Debug.WriteLine($"故障音声: {kosyouKoePath} - {System.IO.File.Exists(kosyouKoePath)}");
             System.Diagnostics.Debug.WriteLine("==================");
             
             // 音声ループ開始（一度だけ）
@@ -165,9 +270,10 @@ namespace tatehama_bougo_client
             {
                 while (shouldPlayLoop)
                 {
-                    if (!shouldPlayLoop) break;
+                    // 防護無線発砲中は通常ループを停止
+                    if (!shouldPlayLoop || isBougoActive) break;
                     
-                    // bougomusenno.wavを再生
+                    // bougomusenno.wavを再生（通常時の防護無線アナウンス）
                     System.Diagnostics.Debug.WriteLine($"防護無線音声開始: {DateTime.Now:HH:mm:ss.fff}");
                     bougomusenno?.PlayOnce(1.0f);
                     
@@ -175,7 +281,7 @@ namespace tatehama_bougo_client
                     await Task.Delay(bougoDurationMs);
                     System.Diagnostics.Debug.WriteLine($"防護無線音声終了: {DateTime.Now:HH:mm:ss.fff}");
                     
-                    if (!shouldPlayLoop) break;
+                    if (!shouldPlayLoop || isBougoActive) break;
                     
                     // set_trainnum.wavを再生
                     System.Diagnostics.Debug.WriteLine($"列車番号設定音声開始: {DateTime.Now:HH:mm:ss.fff}");
@@ -228,6 +334,121 @@ namespace tatehama_bougo_client
             {
                 instance?.PlaySetComplete();
             }
+        }
+
+        public static void PlayKosyouSound()
+        {
+            lock (audioLock)
+            {
+                shouldPlayKosyouLoop = true;
+                if (instance != null && !instance.kosyouLoopStarted)
+                {
+                    instance.StartKosyouLoop();
+                    instance.kosyouLoopStarted = true;
+                }
+                System.Diagnostics.Debug.WriteLine("故障音ループを開始しました");
+            }
+        }
+
+        public static void StopKosyouSound()
+        {
+            lock (audioLock)
+            {
+                shouldPlayKosyouLoop = false;
+                if (instance != null)
+                {
+                    instance.kosyouLoopStarted = false;
+                }
+                System.Diagnostics.Debug.WriteLine("故障音ループを停止しました");
+            }
+        }
+
+        // 防護無線の状態管理メソッド
+        public static void StartBougoMuenno()
+        {
+            lock (audioLock)
+            {
+                if (instance != null && !isBougoActive)
+                {
+                    System.Diagnostics.Debug.WriteLine("🚨 外部から防護無線発砲要求");
+                    isBougoActive = true;
+                    
+                    // 他の音声を停止
+                    shouldPlayLoop = false;
+                    shouldPlayKosyouLoop = false;
+                    
+                    // PlayLoopで継続再生
+                    instance.bougo?.PlayLoop(1.0f);
+                }
+            }
+        }
+
+        public static void StopBougoMuenno()
+        {
+            lock (audioLock)
+            {
+                if (instance != null && isBougoActive)
+                {
+                    System.Diagnostics.Debug.WriteLine("🔴 外部から防護無線停止要求");
+                    isBougoActive = false;
+                    
+                    // 防護無線を停止
+                    instance.bougo?.Stop();
+                    
+                    // 通常音声ループを再開
+                    shouldPlayLoop = true;
+                    if (!instance.loopStarted)
+                    {
+                        instance.StartSoundLoop();
+                        instance.loopStarted = true;
+                    }
+                }
+            }
+        }
+
+        public static bool IsBougoActive()
+        {
+            lock (audioLock)
+            {
+                return isBougoActive;
+            }
+        }
+
+        private void StartKosyouLoop()
+        {
+            // 故障音の長さを事前に取得
+            int kosyouDurationMs = kosyou?.GetDurationMs() ?? 3000;
+            int kosyouKoeDurationMs = kosyou_koe?.GetDurationMs() ?? 5000;
+            
+            System.Diagnostics.Debug.WriteLine($"=== 故障音ループ情報 ===");
+            System.Diagnostics.Debug.WriteLine($"kosyou音声長: {kosyouDurationMs}ms");
+            System.Diagnostics.Debug.WriteLine($"kosyou_koe音声長: {kosyouKoeDurationMs}ms");
+            System.Diagnostics.Debug.WriteLine($"====================");
+
+            // 順番に再生するループ（kosyou -> kosyou_koe -> 繰り返し）
+            _ = Task.Run(async () =>
+            {
+                while (shouldPlayKosyouLoop)
+                {
+                    if (!shouldPlayKosyouLoop) break;
+                    
+                    // kosyou.wavを再生
+                    System.Diagnostics.Debug.WriteLine($"故障音開始: {DateTime.Now:HH:mm:ss.fff}");
+                    kosyou?.PlayOnce(1.0f);
+                    
+                    await Task.Delay(kosyouDurationMs);
+                    System.Diagnostics.Debug.WriteLine($"故障音終了: {DateTime.Now:HH:mm:ss.fff}");
+                    
+                    if (!shouldPlayKosyouLoop) break;
+                    
+                    // kosyou_koe.wavを再生
+                    System.Diagnostics.Debug.WriteLine($"故障音声開始: {DateTime.Now:HH:mm:ss.fff}");
+                    kosyou_koe?.PlayOnce(1.0f);
+                    
+                    await Task.Delay(kosyouKoeDurationMs);
+                    System.Diagnostics.Debug.WriteLine($"故障音声終了: {DateTime.Now:HH:mm:ss.fff}");
+                }
+            });
         }
 
         private void InitializeTrainCrewDisplay()

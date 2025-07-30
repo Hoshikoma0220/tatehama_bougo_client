@@ -41,3 +41,5 @@ d:\tatehama\NEW\tatehama_bougo_client\obj\Debug\net8.0-windows\tatehama_bougo_cl
 d:\tatehama\NEW\tatehama_bougo_client\obj\Debug\net8.0-windows\ref\tatehama_bougo_client.dll
 D:\tatehama\NEW\tatehama_bougo_client\bin\Debug\net8.0-windows\Newtonsoft.Json.dll
 D:\tatehama\NEW\tatehama_bougo_client\bin\Debug\net8.0-windows\websocket-sharp.dll
+D:\tatehama\NEW\tatehama_bougo_client\bin\Debug\net8.0-windows\Sound\kosyou.wav
+D:\tatehama\NEW\tatehama_bougo_client\bin\Debug\net8.0-windows\Sound\kosyou_koe.wav

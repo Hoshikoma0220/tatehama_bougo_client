@@ -152,7 +152,8 @@ namespace tatehama_bougo_client
         /// </summary>
         public static void OnTrainNumberSet(string trainNumber)
         {
-            if (!string.IsNullOrEmpty(trainNumber) && trainNumber != "9999" && trainNumber != "0000")
+            // 9999も有効な列車番号として扱い、0000のみ除外
+            if (!string.IsNullOrEmpty(trainNumber) && trainNumber != "0000")
             {
                 ReleaseEmergencyBrake();
                 Debug.WriteLine($"非常ブレーキ制御: 列番設定完了により非常ブレーキ解除 - {trainNumber}");
