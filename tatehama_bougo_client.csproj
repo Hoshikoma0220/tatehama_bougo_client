@@ -22,6 +22,15 @@
 
   <ItemGroup>
     <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="WebSocketSharp-netstandard" Version="1.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 古いAPIとの互換性問題があるため一時的に除外 -->
+    <Compile Remove="DebugWindowDLL.cs" />
+    <Compile Remove="DebugWindowDLL_Fixed.cs" />
+    <Compile Remove="DebugWindowDLL_Simple.cs" />
   </ItemGroup>
 
 </Project>
