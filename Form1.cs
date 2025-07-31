@@ -499,6 +499,8 @@ namespace tatehama_bougo_client
 
         private void InitializeEmergencyBrakeUI()
         {
+            System.Diagnostics.Debug.WriteLine("🚀 EBボタン初期化開始");
+            
             // EB開放スイッチ（列番ボタンの隣に配置）
             emergencyBrakeReleaseButton = new PictureBox
             {
@@ -523,6 +525,7 @@ namespace tatehama_bougo_client
             emergencyBrakeReleaseButton.Click += HandleEmergencyBrakeReleaseClick;
 
             this.Controls.Add(emergencyBrakeReleaseButton);
+            System.Diagnostics.Debug.WriteLine($"✅ EBボタンをコントロールに追加: サイズ{emergencyBrakeReleaseButton.Size}, 位置({emergencyBrakeReleaseButton.Left}, {emergencyBrakeReleaseButton.Top})");
 
             // EB状態表示ラベル
             ebStatusLabel = new Label
@@ -534,6 +537,7 @@ namespace tatehama_bougo_client
                 ForeColor = Color.OrangeRed
             };
             this.Controls.Add(ebStatusLabel);
+            System.Diagnostics.Debug.WriteLine("✅ EBボタン初期化完了");
         }
 
         private void HandleEmergencyBrakeReleaseClick(object sender, EventArgs e)
