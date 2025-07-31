@@ -45,10 +45,15 @@ namespace tatehama_bougo_client
         // TrainCrew連携関連
         private TrainCrewWebSocketClient trainCrewClient;
         private Label statusLabel;
-        private Label trainInfoLabel;
+        private Label trainInfoLabel; // 列番入力画面で設定した番号表示用
         private ListBox trackCircuitListBox;
         private Label zoneInfoLabel;
         private Dictionary<string, string> zoneMappings;
+
+        // 非常ブレーキ関連
+        private PictureBox emergencyBrakeReleaseButton;
+        private bool emergencyBrakeButtonState = false; // false: 解除状態, true: 作動状態
+        private string currentTrainNumber = "--"; // 列番入力画面で設定された列車番号
 
         public Form1()
         {
@@ -237,7 +242,7 @@ namespace tatehama_bougo_client
             retsubanButton.Click += (s, ev) =>
             {
                 var subWindow = new RetsubanWindow();
-                subWindow.ShowDialog();
+                subWindow.Show(); // ShowDialog() から Show() に変更（非モーダル）
             };
 
             this.Controls.Add(retsubanButton);
