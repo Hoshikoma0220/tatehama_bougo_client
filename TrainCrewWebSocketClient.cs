@@ -89,7 +89,8 @@ namespace tatehama_bougo_client
                     {
                         System.Diagnostics.Debug.WriteLine("🔇 再接続により故障音ループを停止");
                         Form1.StopKosyouSound();
-                        EmergencyBrakeController.ReleaseEmergencyBrake();
+                        // WebSocket接続状態をEmergencyBrakeControllerに通知（自動で非常ブレーキ制御される）
+                        EmergencyBrakeController.SetWebSocketStatus(true);
                     }
                     
                     // 切断検知タイマーをリセット
@@ -443,8 +444,8 @@ namespace tatehama_bougo_client
                 // 故障音再生開始
                 Form1.PlayKosyouSound();
                 
-                // 非常ブレーキ作動
-                EmergencyBrakeController.ApplyEmergencyBrake();
+                // WebSocket切断状態をEmergencyBrakeControllerに通知（自動で非常ブレーキ作動される）
+                EmergencyBrakeController.SetWebSocketStatus(false);
                 
                 OnConnectionStatusChanged?.Invoke("🚨 故障検知: 5秒間通信断絶");
             }

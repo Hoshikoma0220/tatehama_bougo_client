@@ -102,9 +102,12 @@ namespace TatehamaATS_v1.RetsubanWindow
                 // 非常ブレーキを解除
                 EmergencyBrakeController.OnTrainNumberSet(retsuban);
                 
+                // Form1の列車番号表示を更新
+                tatehama_bougo_client.Form1.UpdateTrainNumber(retsuban);
+                
                 // メインフォームの音声停止と完了音再生
-                Form1.StopSoundLoop();
-                Form1.PlayCompletionSound();
+                tatehama_bougo_client.Form1.StopSoundLoop();
+                tatehama_bougo_client.Form1.PlayCompletionSound();
             }
         }
 

@@ -115,30 +115,26 @@ namespace tatehama_bougo_client
                     // 現在の状態に基づいて非常ブレーキ状態を判定
                     bool shouldBrake = DetermineEmergencyBrakeState();
                     
-                    // 非常ブレーキが必要な場合は常に送信
-                    if (shouldBrake)
+                    // 状態が変化した場合のみ処理
+                    if (shouldBrake != isCurrentlyBraking)
                     {
-                        ApplyEmergencyBrakeSignal();
-                        if (!isCurrentlyBraking)
+                        if (shouldBrake)
                         {
+                            ApplyEmergencyBrakeSignal();
                             isCurrentlyBraking = true;
                             Debug.WriteLine("🚨 EmergencyBrakeController: 非常ブレーキ作動（現実的フロー判定）");
                         }
-                        // EB中は50msごとに連続送信
-                        await Task.Delay(50, controlLoopCancellationToken.Token);
-                    }
-                    else
-                    {
-                        // ブレーキ解除が必要な場合
-                        if (isCurrentlyBraking)
+                        else
                         {
                             ReleaseEmergencyBrakeSignal();
                             isCurrentlyBraking = false;
                             Debug.WriteLine("✅ EmergencyBrakeController: 非常ブレーキ解除（現実的フロー判定）");
                         }
-                        // 正常時は500msごとに監視
-                        await Task.Delay(500, controlLoopCancellationToken.Token);
                     }
+                    
+                    // 非常ブレーキ中は連続送信、そうでなければ監視のみ
+                    int delayMs = isCurrentlyBraking ? 100 : 500;
+                    await Task.Delay(delayMs, controlLoopCancellationToken.Token);
                 }
             }
             catch (OperationCanceledException)
@@ -187,12 +183,7 @@ namespace tatehama_bougo_client
             {
                 if (isDllLoaded && setAtoNotchMethod != null)
                 {
-                    // 確実にEBをかけるため複数回送信
-                    for (int i = 0; i < 3; i++)
-                    {
-                        setAtoNotchMethod.Invoke(null, new object[] { -8 });
-                        if (i < 2) Thread.Sleep(10); // 間隔を空けて送信
-                    }
+                    setAtoNotchMethod.Invoke(null, new object[] { -8 });
                 }
             }
             catch (Exception ex)
@@ -210,12 +201,7 @@ namespace tatehama_bougo_client
             {
                 if (isDllLoaded && setAtoNotchMethod != null)
                 {
-                    // 確実に解除するため複数回送信
-                    for (int i = 0; i < 2; i++)
-                    {
-                        setAtoNotchMethod.Invoke(null, new object[] { 0 });
-                        if (i < 1) Thread.Sleep(10); // 間隔を空けて送信
-                    }
+                    setAtoNotchMethod.Invoke(null, new object[] { 0 });
                 }
             }
             catch (Exception ex)
