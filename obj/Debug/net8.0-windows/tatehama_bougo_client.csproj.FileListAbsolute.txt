@@ -53,3 +53,5 @@ d:\tatehama\NEW\tatehama_bougo_client\bin\Debug\net8.0-windows\Images\bougo_on.p
 d:\tatehama\NEW\tatehama_bougo_client\bin\Debug\net8.0-windows\Images\kosyou.png
 d:\tatehama\NEW\tatehama_bougo_client\bin\Debug\net8.0-windows\Images\power_on.png
 d:\tatehama\NEW\tatehama_bougo_client\bin\Debug\net8.0-windows\Images\Retsuban_Background_kari.png
+D:\tatehama\NEW\tatehama_bougo_client\bin\Debug\net8.0-windows\Sound\EBkaihou.wav
+D:\tatehama\NEW\tatehama_bougo_client\bin\Debug\net8.0-windows\Sound\EBkaihou_koe.wav

@@ -32,6 +32,8 @@ namespace tatehama_bougo_client
         private AudioWrapper set_complete;
         private AudioWrapper kosyou; // 故障音声
         private AudioWrapper kosyou_koe; // 故障音声（音声）
+        private AudioWrapper ebkaihou; // EB開放音声
+        private AudioWrapper ebkaihou_koe; // EB開放音声（音声）
         
         // UI状態管理
         private float currentVolume = 1.0f; // 現在の音量（0.0～1.0）
@@ -43,14 +45,19 @@ namespace tatehama_bougo_client
         private bool isWebSocketConnected = false; // WebSocket接続状態
         private DateTime lastWebSocketActivity = DateTime.Now; // 最後のWebSocket通信時刻
         private DateTime? failureDetectedTime = null; // 故障検出開始時刻
+        private DateTime? webSocketTimeoutDetectedTime = null; // WebSocket接続タイムアウト検出開始時刻
         private DateTime? ebActivationTime = null; // EB作動開始時刻（5秒遅延用）
         private bool isStartupEBActivated = false; // 起動時EB作動済みフラグ
+        private bool hasEverMetReleaseConditions = false; // EB開放条件を1回でも満たしたことがあるかのフラグ
         private static bool shouldPlayLoop = true;
         private bool loopStarted = false;
         private static bool shouldPlayKosyouLoop = false; // 故障音ループ制御
         private bool kosyouLoopStarted = false; // 故障音ループ開始状態
+        private static bool shouldPlayEBKaihouLoop = false; // EB開放音ループ制御
+        private bool ebKaihouLoopStarted = false; // EB開放音ループ開始状態
         private static bool isBougoActive = false; // 防護無線発砲状態
         private static bool isKosyouActive = false; // 故障音発生状態
+        private static bool isEBKaihouActive = false; // EB開放音発生状態
         private static readonly object audioLock = new object();
 
         // 画像パス定数
@@ -69,6 +76,8 @@ namespace tatehama_bougo_client
 
         // 非常ブレーキ関連
         private bool emergencyBrakeButtonState = false; // false: 作動状態(非常ブレーキ有効), true: 開放状態(非常ブレーキ無効)
+        private System.Windows.Forms.Timer ebBlinkTimer; // EB開放中の故障ランプ点滅タイマー
+        private bool ebBlinkState = false; // EB開放中の故障ランプ点滅状態
         private string currentTrainNumber = "--"; // 列番入力画面で設定された列車番号
         private bool isTrainMoving = false; // 列車走行状態
 
@@ -95,14 +104,24 @@ namespace tatehama_bougo_client
             // グローバルホットキーを解除
             UnregisterHotKey(this.Handle, HOTKEY_ID_F4);
             
+            // EB開放点滅タイマーを停止
+            ebBlinkTimer?.Stop();
+            ebBlinkTimer?.Dispose();
+            
             // アプリケーション終了時に非常ブレーキを確実に解除
             EmergencyBrakeController.OnApplicationExit();
             
             // 全ての音声ループを停止
             shouldPlayLoop = false;
             shouldPlayKosyouLoop = false; 
+            shouldPlayEBKaihouLoop = false;
             isBougoActive = false;
             isKosyouActive = false;
+            isEBKaihouActive = false;
+            
+            // 故障検出時刻をリセット
+            failureDetectedTime = null;
+            webSocketTimeoutDetectedTime = null;
             
             // アプリケーション終了時に音量を100%に戻す
             try
@@ -168,16 +187,13 @@ namespace tatehama_bougo_client
                     currentVolume = 1.0f;
                     System.Diagnostics.Debug.WriteLine("🔊 防護無線音量を100%に設定");
                     
-                    // 他の音声を停止
+                    // 防護無線中: 通常音声ループのみ停止（他の音声は継続）
                     shouldPlayLoop = false;
-                    shouldPlayKosyouLoop = false;
+                    // shouldPlayKosyouLoop = false; // 故障音は継続
+                    // shouldPlayEBKaihouLoop = false; // EB開放音は継続
                     
-                    // 故障音発生中だった場合は停止
-                    if (isKosyouActive)
-                    {
-                        isKosyouActive = false;
-                        System.Diagnostics.Debug.WriteLine("🔴 故障音を停止（防護無線発砲のため）");
-                    }
+                    // 故障音・EB開放音は停止せず継続再生
+                    System.Diagnostics.Debug.WriteLine("� 防護無線発砲中 - 故障音・EB開放音は継続再生");
                     
                     // PlayLoopで継続再生（100%音量）
                     bougoF4Audio?.PlayLoop(currentVolume);
@@ -268,6 +284,8 @@ namespace tatehama_bougo_client
             set_complete = audioManager.AddAudio("Sound/set_complete.wav", 1.0f, TakumiteAudioWrapper.AudioType.System);
             kosyou = audioManager.AddAudio("Sound/kosyou.wav", 1.0f, TakumiteAudioWrapper.AudioType.System);
             kosyou_koe = audioManager.AddAudio("Sound/kosyou_koe.wav", 1.0f, TakumiteAudioWrapper.AudioType.System);
+            ebkaihou = audioManager.AddAudio("Sound/EBkaihou.wav", 1.0f, TakumiteAudioWrapper.AudioType.System);
+            ebkaihou_koe = audioManager.AddAudio("Sound/EBkaihou_koe.wav", 1.0f, TakumiteAudioWrapper.AudioType.System);
             
             // 音声ファイルの存在確認
             System.Diagnostics.Debug.WriteLine("=== 音声ファイル確認 ===");
@@ -278,6 +296,8 @@ namespace tatehama_bougo_client
             var completePath = System.IO.Path.Combine(exeDir, "Sound/set_complete.wav");
             var kosyouPath = System.IO.Path.Combine(exeDir, "Sound/kosyou.wav");
             var kosyouKoePath = System.IO.Path.Combine(exeDir, "Sound/kosyou_koe.wav");
+            var ebkaihouPath = System.IO.Path.Combine(exeDir, "Sound/EBkaihou.wav");
+            var ebkaihouKoePath = System.IO.Path.Combine(exeDir, "Sound/EBkaihou_koe.wav");
             
             System.Diagnostics.Debug.WriteLine($"防護無線: {bougoPath} - {System.IO.File.Exists(bougoPath)}");
             System.Diagnostics.Debug.WriteLine($"防護音F4: {bougoF4Path} - {System.IO.File.Exists(bougoF4Path)}");
@@ -285,6 +305,8 @@ namespace tatehama_bougo_client
             System.Diagnostics.Debug.WriteLine($"完了音: {completePath} - {System.IO.File.Exists(completePath)}");
             System.Diagnostics.Debug.WriteLine($"故障音: {kosyouPath} - {System.IO.File.Exists(kosyouPath)}");
             System.Diagnostics.Debug.WriteLine($"故障音声: {kosyouKoePath} - {System.IO.File.Exists(kosyouKoePath)}");
+            System.Diagnostics.Debug.WriteLine($"EB開放音: {ebkaihouPath} - {System.IO.File.Exists(ebkaihouPath)}");
+            System.Diagnostics.Debug.WriteLine($"EB開放音声: {ebkaihouKoePath} - {System.IO.File.Exists(ebkaihouKoePath)}");
             System.Diagnostics.Debug.WriteLine("==================");
             
             // 音声ループ開始（一度だけ）
@@ -299,6 +321,11 @@ namespace tatehama_bougo_client
 
             // UI イベントハンドラーを接続
             ConnectUIEventHandlers();
+
+            // EB開放中の故障ランプ点滅タイマーを初期化
+            ebBlinkTimer = new System.Windows.Forms.Timer();
+            ebBlinkTimer.Interval = 500; // 500ms間隔で点滅
+            ebBlinkTimer.Tick += EBBlinkTimer_Tick;
 
             // TrainCrewクライアントを安全に初期化（エラーが発生してもフォーム表示を妨げない）
             try
@@ -326,8 +353,8 @@ namespace tatehama_bougo_client
             {
                 while (shouldPlayLoop)
                 {
-                    // 防護無線発砲中は通常ループを停止
-                    if (!shouldPlayLoop || isBougoActive) break;
+                    // 防護無線発砲中またはEB開放中は通常ループを停止
+                    if (!shouldPlayLoop || isBougoActive || emergencyBrakeButtonState) break;
                     
                     // bougomusenno.wavを再生（通常時の防護無線アナウンス）
                     System.Diagnostics.Debug.WriteLine($"防護無線音声開始: {DateTime.Now:HH:mm:ss.fff}");
@@ -337,7 +364,7 @@ namespace tatehama_bougo_client
                     await Task.Delay(bougoDurationMs);
                     System.Diagnostics.Debug.WriteLine($"防護無線音声終了: {DateTime.Now:HH:mm:ss.fff}");
                     
-                    if (!shouldPlayLoop || isBougoActive) break;
+                    if (!shouldPlayLoop || isBougoActive || emergencyBrakeButtonState) break;
                     
                     // set_trainnum.wavを再生
                     System.Diagnostics.Debug.WriteLine($"列車番号設定音声開始: {DateTime.Now:HH:mm:ss.fff}");
@@ -435,6 +462,13 @@ namespace tatehama_bougo_client
         {
             lock (audioLock)
             {
+                // 既に再生中の場合は重複を防ぐ
+                if (shouldPlayKosyouLoop && isKosyouActive)
+                {
+                    System.Diagnostics.Debug.WriteLine("ℹ️ 故障音は既に再生中 - 重複開始をスキップ");
+                    return;
+                }
+                
                 shouldPlayKosyouLoop = true;
                 isKosyouActive = true; // 故障音発生状態に設定
                 if (instance != null && !instance.kosyouLoopStarted)
@@ -486,6 +520,68 @@ namespace tatehama_bougo_client
             }
         }
 
+        public static void PlayEBKaihouSound()
+        {
+            lock (audioLock)
+            {
+                // 既に再生中の場合は重複を防ぐ
+                if (shouldPlayEBKaihouLoop && isEBKaihouActive)
+                {
+                    System.Diagnostics.Debug.WriteLine("ℹ️ EB開放音は既に再生中 - 重複開始をスキップ");
+                    return;
+                }
+                
+                shouldPlayEBKaihouLoop = true;
+                isEBKaihouActive = true; // EB開放音発生状態に設定
+                if (instance != null && !instance.ebKaihouLoopStarted)
+                {
+                    instance.StartEBKaihouLoop();
+                    instance.ebKaihouLoopStarted = true;
+                    
+                    // EB開放音開始時にWindows Audio APIで音量を100%に設定
+                    try
+                    {
+                        TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(1.0f);
+                        System.Diagnostics.Debug.WriteLine("🔊 EB開放音開始時：Windows Audio APIで100%に設定");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"❌ EB開放音開始時音量設定エラー: {ex.Message}");
+                    }
+                    
+                    // EB開放音中の音量を100%に設定
+                    instance.currentVolume = 1.0f;
+                    System.Diagnostics.Debug.WriteLine("🔊 EB開放音音量を100%に設定");
+                }
+                System.Diagnostics.Debug.WriteLine("EB開放音ループを開始しました");
+            }
+        }
+
+        public static void StopEBKaihouSound()
+        {
+            lock (audioLock)
+            {
+                shouldPlayEBKaihouLoop = false;
+                isEBKaihouActive = false; // EB開放音発生状態を解除
+                if (instance != null)
+                {
+                    instance.ebKaihouLoopStarted = false;
+                    
+                    // EB開放音停止時にアプリケーション音量を100%に戻す
+                    try
+                    {
+                        TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(1.0f);
+                        System.Diagnostics.Debug.WriteLine("🔊 EB開放音停止時：アプリケーション音量を100%に復旧");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"❌ EB開放音停止時音量復旧エラー: {ex.Message}");
+                    }
+                }
+                System.Diagnostics.Debug.WriteLine("EB開放音ループを停止しました");
+            }
+        }
+
         // 防護無線の状態管理メソッド
         public static void StartBougoMuenno()
         {
@@ -511,16 +607,13 @@ namespace tatehama_bougo_client
                     instance.currentVolume = 1.0f;
                     System.Diagnostics.Debug.WriteLine("🔊 外部防護無線音量を100%に設定");
                     
-                    // 他の音声を停止
+                    // 外部防護無線中: 通常音声ループのみ停止（他の音声は継続）
                     shouldPlayLoop = false;
-                    shouldPlayKosyouLoop = false;
+                    // shouldPlayKosyouLoop = false; // 故障音は継続
+                    // shouldPlayEBKaihouLoop = false; // EB開放音は継続
                     
-                    // 故障音発生中だった場合は停止
-                    if (isKosyouActive)
-                    {
-                        isKosyouActive = false;
-                        System.Diagnostics.Debug.WriteLine("🔴 故障音を停止（外部防護無線発砲のため）");
-                    }
+                    // 故障音・EB開放音は停止せず継続再生
+                    System.Diagnostics.Debug.WriteLine("� 外部防護無線発砲中 - 故障音・EB開放音は継続再生");
                     
                     // PlayLoopで継続再生（100%音量）
                     instance.bougoF4Audio?.PlayLoop(instance.currentVolume);
@@ -596,7 +689,8 @@ namespace tatehama_bougo_client
             {
                 while (shouldPlayKosyouLoop)
                 {
-                    if (!shouldPlayKosyouLoop) break;
+                    // EB開放中は故障音を停止
+                    if (!shouldPlayKosyouLoop || emergencyBrakeButtonState) break;
                     
                     // kosyou.wavを再生
                     System.Diagnostics.Debug.WriteLine($"故障音開始: {DateTime.Now:HH:mm:ss.fff}");
@@ -605,7 +699,7 @@ namespace tatehama_bougo_client
                     await Task.Delay(kosyouDurationMs);
                     System.Diagnostics.Debug.WriteLine($"故障音終了: {DateTime.Now:HH:mm:ss.fff}");
                     
-                    if (!shouldPlayKosyouLoop) break;
+                    if (!shouldPlayKosyouLoop || emergencyBrakeButtonState) break;
                     
                     // kosyou_koe.wavを再生
                     System.Diagnostics.Debug.WriteLine($"故障音声開始: {DateTime.Now:HH:mm:ss.fff}");
@@ -613,6 +707,43 @@ namespace tatehama_bougo_client
                     
                     await Task.Delay(kosyouKoeDurationMs);
                     System.Diagnostics.Debug.WriteLine($"故障音声終了: {DateTime.Now:HH:mm:ss.fff}");
+                }
+            });
+        }
+
+        private void StartEBKaihouLoop()
+        {
+            // EB開放音の長さを事前に取得
+            int ebkaihouDurationMs = ebkaihou?.GetDurationMs() ?? 3000;
+            int ebkaihouKoeDurationMs = ebkaihou_koe?.GetDurationMs() ?? 5000;
+            
+            System.Diagnostics.Debug.WriteLine($"=== EB開放音ループ情報 ===");
+            System.Diagnostics.Debug.WriteLine($"ebkaihou音声長: {ebkaihouDurationMs}ms");
+            System.Diagnostics.Debug.WriteLine($"ebkaihou_koe音声長: {ebkaihouKoeDurationMs}ms");
+            System.Diagnostics.Debug.WriteLine($"=======================");
+
+            // 順番に再生するループ（ebkaihou -> ebkaihou_koe -> 繰り返し）
+            _ = Task.Run(async () =>
+            {
+                while (shouldPlayEBKaihouLoop)
+                {
+                    if (!shouldPlayEBKaihouLoop) break;
+                    
+                    // EBkaihou.wavを再生
+                    System.Diagnostics.Debug.WriteLine($"EB開放音開始: {DateTime.Now:HH:mm:ss.fff}");
+                    ebkaihou?.PlayOnce(currentVolume);
+                    
+                    await Task.Delay(ebkaihouDurationMs);
+                    System.Diagnostics.Debug.WriteLine($"EB開放音終了: {DateTime.Now:HH:mm:ss.fff}");
+                    
+                    if (!shouldPlayEBKaihouLoop) break;
+                    
+                    // EBkaihou_koe.wavを再生
+                    System.Diagnostics.Debug.WriteLine($"EB開放音声開始: {DateTime.Now:HH:mm:ss.fff}");
+                    ebkaihou_koe?.PlayOnce(currentVolume);
+                    
+                    await Task.Delay(ebkaihouKoeDurationMs);
+                    System.Diagnostics.Debug.WriteLine($"EB開放音声終了: {DateTime.Now:HH:mm:ss.fff}");
                 }
             });
         }
@@ -679,6 +810,58 @@ namespace tatehama_bougo_client
                 
                 // EmergencyBrakeControllerに状態を通知
                 EmergencyBrakeController.SetEbReleaseOverride(emergencyBrakeButtonState);
+
+                // EB開放時の音声再生
+                if (emergencyBrakeButtonState)
+                {
+                    // EB開放音声をループ再生
+                    System.Diagnostics.Debug.WriteLine("🔊 EB開放音声ループ開始");
+                    PlayEBKaihouSound();
+                    
+                    // EB開放中: 他の音声を停止（防護無線は除く）
+                    shouldPlayLoop = false; // 通常音声ループ停止
+                    if (isKosyouActive)
+                    {
+                        StopKosyouSound(); // 故障音停止
+                        System.Diagnostics.Debug.WriteLine("🔊 EB開放中 - 故障音を停止");
+                    }
+                    
+                    // EB開放中: 電源ランプ点灯、故障ランプ点滅開始
+                    powerLampOn = true;
+                    UpdatePowerLamp();
+                    ebBlinkTimer.Start(); // 点滅開始
+                    System.Diagnostics.Debug.WriteLine("💡 EB開放 - 電源ランプ点灯、故障ランプ点滅開始");
+                }
+                else
+                {
+                    // EB作動時: 音声停止、点滅停止
+                    System.Diagnostics.Debug.WriteLine("🔊 EB開放音声ループ停止");
+                    StopEBKaihouSound();
+                    
+                    // EB開放終了後: 他の音声を再開
+                    if (!isBougoActive) // 防護無線中でなければ通常音声を再開
+                    {
+                        shouldPlayLoop = true;
+                        if (!loopStarted)
+                        {
+                            StartSoundLoop();
+                            loopStarted = true;
+                        }
+                        System.Diagnostics.Debug.WriteLine("🔊 EB開放終了 - 通常音声ループを再開");
+                    }
+                    
+                    // 故障状態だった場合は故障音も再開
+                    if (failureLampOn && !isBougoActive)
+                    {
+                        PlayKosyouSound();
+                        System.Diagnostics.Debug.WriteLine("🔊 EB開放終了 - 故障音を再開");
+                    }
+                    
+                    ebBlinkTimer.Stop();
+                    ebBlinkState = false;
+                    UpdateFailureLamp(); // 故障ランプを通常状態に戻す
+                    System.Diagnostics.Debug.WriteLine("💡 EB作動 - 故障ランプ点滅停止");
+                }
 
                 string stateText = emergencyBrakeButtonState ? "オン" : "オフ";
                 System.Diagnostics.Debug.WriteLine($"🔘 EB開放スイッチ: {stateText}に変更");
@@ -961,10 +1144,10 @@ namespace tatehama_bougo_client
                 return; // 電源OFFの場合は動作しない
             }
             
-            // 防護無線発砲中または故障音発生中のみ音量調整可能
-            if (!isBougoActive && !isKosyouActive) 
+            // 防護無線発砲中または故障音発生中またはEB開放音発生中のみ音量調整可能
+            if (!isBougoActive && !isKosyouActive && !isEBKaihouActive) 
             {
-                System.Diagnostics.Debug.WriteLine("🔊 音量調整無効 - 防護無線・故障音ともに停止中");
+                System.Diagnostics.Debug.WriteLine("🔊 音量調整無効 - 防護無線・故障音・EB開放音すべて停止中");
                 return;
             }
             
@@ -1047,17 +1230,17 @@ namespace tatehama_bougo_client
         // 音量表示を更新
         private void UpdateVolumeDisplay()
         {
-            // 防護無線発砲中でも故障音発生中でもない場合は通常状態
-            if (!isBougoActive && !isKosyouActive)
+            // 防護無線発砲中でも故障音発生中でもEB開放音発生中でもない場合は通常状態
+            if (!isBougoActive && !isKosyouActive && !isEBKaihouActive)
             {
                 // 通常時は音量ボタンは単純に表示
-                System.Diagnostics.Debug.WriteLine("🔊 音量表示: 通常状態（防護無線・故障音ともに停止中）");
+                System.Diagnostics.Debug.WriteLine("🔊 音量表示: 通常状態（防護無線・故障音・EB開放音すべて停止中）");
                 return;
             }
             
-            // 防護無線発砲中または故障音発生中の音量状態をログ出力（30%↔100%）
+            // 防護無線発砲中または故障音発生中またはEB開放音発生中の音量状態をログ出力（30%↔100%）
             int volumePercent = (int)(currentVolume * 100);
-            string activeMode = isBougoActive ? "防護無線中" : "故障音中";
+            string activeMode = isBougoActive ? "防護無線中" : isKosyouActive ? "故障音中" : "EB開放音中";
             System.Diagnostics.Debug.WriteLine($"🔊 音量表示: {volumePercent}%（{activeMode}）");
         }
 
@@ -1071,6 +1254,16 @@ namespace tatehama_bougo_client
             else
             {
                 bougo.Image = Image.FromFile(BougoOffImagePath);
+            }
+        }
+
+        // EB開放中の故障ランプ点滅タイマーイベント
+        private void EBBlinkTimer_Tick(object sender, EventArgs e)
+        {
+            if (emergencyBrakeButtonState) // EB開放中のみ動作
+            {
+                ebBlinkState = !ebBlinkState; // 点滅状態を反転
+                UpdateFailureLamp(); // 故障ランプ更新
             }
         }
 
@@ -1090,7 +1283,25 @@ namespace tatehama_bougo_client
         // 故障ランプの表示を更新
         private void UpdateFailureLamp()
         {
-            if (failureLampOn)
+            // EB開放中は点滅制御
+            if (emergencyBrakeButtonState)
+            {
+                if (ebBlinkState)
+                {
+                    fail.Image = Image.FromFile(KosyouNormalImagePath); // 点灯
+                    kosyouLCD.Text = "EB開放";
+                    kosyouLCD.ForeColor = Color.Orange;
+                    kosyouLCD.BackColor = Color.Black;
+                }
+                else
+                {
+                    fail.Image = null; // 消灯
+                    kosyouLCD.Text = "EB開放";
+                    kosyouLCD.ForeColor = Color.Orange;
+                    kosyouLCD.BackColor = Color.Black;
+                }
+            }
+            else if (failureLampOn)
             {
                 fail.Image = Image.FromFile(KosyouNormalImagePath); // kosyou.pngを使用
                 kosyouLCD.Text = "故障発生";
@@ -1109,21 +1320,59 @@ namespace tatehama_bougo_client
         // EBを開放できる条件をチェックして電源ランプを制御
         private void CheckEBReleaseConditions()
         {
-            // WebSocket接続タイムアウトチェック（2秒に短縮）
-            bool isWebSocketTimedOut = (DateTime.Now - lastWebSocketActivity).TotalSeconds > 2;
+            // WebSocket接続タイムアウトチェック（2秒に短縮、ただし初期化完了後のみ）
+            bool isWebSocketTimedOut = initialSetupComplete && (DateTime.Now - lastWebSocketActivity).TotalSeconds > 2;
             if (isWebSocketTimedOut && isWebSocketConnected)
             {
                 isWebSocketConnected = false;
                 System.Diagnostics.Debug.WriteLine("⚠️ WebSocket接続タイムアウト - 2秒間応答なし");
                 
-                // 故障発生時の処理
-                if (initialSetupComplete && !failureLampOn)
+                // WebSocket接続タイムアウト検出開始時刻を記録（初期化完了後のみ、EB開放中は除く）
+                if (webSocketTimeoutDetectedTime == null && initialSetupComplete && !emergencyBrakeButtonState)
                 {
-                    failureLampOn = true;
-                    UpdateFailureLamp();
-                    PlayKosyouSound();
-                    System.Diagnostics.Debug.WriteLine("⚠️ 故障ランプ点灯・故障音開始 - WebSocket接続タイムアウト");
+                    webSocketTimeoutDetectedTime = DateTime.Now;
+                    System.Diagnostics.Debug.WriteLine("⚠️ WebSocket接続タイムアウト検出開始 - 5秒後に故障判定予定");
                 }
+                else if (emergencyBrakeButtonState)
+                {
+                    System.Diagnostics.Debug.WriteLine("ℹ️ WebSocket接続タイムアウト - EB開放中のため検出をスキップ");
+                }
+                
+                // 5秒経過チェック（WebSocket接続タイムアウト）
+                if (initialSetupComplete && isStartupEBActivated && (DateTime.Now - webSocketTimeoutDetectedTime.Value).TotalSeconds >= 5.0 && !failureLampOn && !emergencyBrakeButtonState)
+                {
+                    // EB解除条件を一度でも満たしている場合のみ故障判定実行
+                    if (hasEverMetReleaseConditions)
+                    {
+                        failureLampOn = true;
+                        UpdateFailureLamp();
+                        PlayKosyouSound();
+                        System.Diagnostics.Debug.WriteLine("⚠️ 故障ランプ点灯・故障音開始 - WebSocket接続タイムアウト（5秒経過）");
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine("ℹ️ WebSocket接続タイムアウト - EB解除条件未達成のため故障ランプ・音声をスキップ");
+                    }
+                }
+                else if (emergencyBrakeButtonState && webSocketTimeoutDetectedTime != null)
+                {
+                    System.Diagnostics.Debug.WriteLine("ℹ️ WebSocket接続タイムアウト - EB開放中のため故障判定をスキップ");
+                }
+            }
+            else if (!isWebSocketTimedOut && isWebSocketConnected && initialSetupComplete)
+            {
+                // WebSocket接続が復旧した場合、タイムアウト検出時刻をリセット
+                if (webSocketTimeoutDetectedTime != null)
+                {
+                    webSocketTimeoutDetectedTime = null;
+                    System.Diagnostics.Debug.WriteLine("✅ WebSocket接続復旧 - タイムアウト検出時刻リセット");
+                }
+            }
+            else if (emergencyBrakeButtonState && webSocketTimeoutDetectedTime != null)
+            {
+                // EB開放中はWebSocket接続タイムアウト検出をリセット
+                webSocketTimeoutDetectedTime = null;
+                System.Diagnostics.Debug.WriteLine("ℹ️ EB開放中 - WebSocket接続タイムアウト検出をリセット");
             }
 
             // EBを開放できる条件：列車番号設定済み かつ TrainCrew接続済み
@@ -1134,6 +1383,13 @@ namespace tatehama_bougo_client
 
             if (canReleaseEB)
             {
+                // EB開放条件を1回でも満たしたことを記録
+                if (!hasEverMetReleaseConditions)
+                {
+                    hasEverMetReleaseConditions = true;
+                    System.Diagnostics.Debug.WriteLine("✅ EB開放条件を初回満足 - 以降起動時故障ランプ点灯を許可");
+                }
+                
                 // 条件が満たされた場合：電源ランプ点灯、故障状態解除
                 if (!powerLampOn)
                 {
@@ -1153,11 +1409,12 @@ namespace tatehama_bougo_client
                 
                 // 故障検出時間をリセット
                 failureDetectedTime = null;
+                webSocketTimeoutDetectedTime = null;
             }
             else
             {
-                // 条件が満たされていない場合：故障検出開始
-                if (initialSetupComplete && isStartupEBActivated)
+                // 条件が満たされていない場合：故障検出開始（ただしEB開放中は除く）
+                if (initialSetupComplete && isStartupEBActivated && !emergencyBrakeButtonState)
                 {
                     if (failureDetectedTime == null)
                     {
@@ -1171,22 +1428,36 @@ namespace tatehama_bougo_client
                         
                         if (elapsedSeconds >= 5.0 && !failureLampOn)
                         {
-                            // 5秒経過：故障ランプ点灯とEB作動、故障音開始
-                            failureLampOn = true;
-                            UpdateFailureLamp();
-                            PlayKosyouSound();
+                            // EB解除条件を一度でも満たしている場合のみ故障判定実行
+                            if (hasEverMetReleaseConditions)
+                            {
+                                // 5秒経過：故障ランプ点灯とEB作動、故障音開始
+                                failureLampOn = true;
+                                UpdateFailureLamp();
+                                PlayKosyouSound();
+                                
+                                System.Diagnostics.Debug.WriteLine("🚨 5秒経過 - 故障ランプ点灯・EB作動・故障音開始");
+                            }
+                            else
+                            {
+                                System.Diagnostics.Debug.WriteLine("ℹ️ 条件不満足による故障検出 - EB解除条件未達成のため故障ランプ・音声をスキップ");
+                            }
                             
                             // 電源ランプを消灯
                             powerLampOn = false;
                             UpdatePowerLamp();
-                            
-                            System.Diagnostics.Debug.WriteLine("🚨 5秒経過 - 故障ランプ点灯・EB作動・故障音開始");
                         }
                     }
                 }
+                else if (emergencyBrakeButtonState && failureDetectedTime != null)
+                {
+                    // EB開放中は故障検出をリセット
+                    failureDetectedTime = null;
+                    System.Diagnostics.Debug.WriteLine("ℹ️ EB開放中 - 故障検出タイマーをリセット");
+                }
                 
-                // 電源ランプを消灯（条件不満足時）
-                if (powerLampOn)
+                // 電源ランプを消灯（条件不満足時、ただしEB開放中は除く）
+                if (powerLampOn && !emergencyBrakeButtonState)
                 {
                     powerLampOn = false;
                     UpdatePowerLamp();
@@ -1212,19 +1483,26 @@ namespace tatehama_bougo_client
                         System.Diagnostics.Debug.WriteLine("⚠️ 起動時EB作動条件検出開始 - 5秒後にEB作動予定");
                     }
                     
-                    // 5秒経過したら起動時EBを作動
+                    // 5秒経過したら起動時EBを作動（ただし、EB解除条件を一度も満たしていない場合は故障ランプ・音声はスキップ）
                     if ((DateTime.Now - ebActivationTime.Value).TotalSeconds >= 5)
                     {
                         // 起動時EB作動処理
                         System.Diagnostics.Debug.WriteLine("🚨 起動時EB作動実行 - 5秒経過後");
                         isStartupEBActivated = true;
                         
-                        // 故障ランプ点灯処理
-                        if (!failureLampOn)
+                        // 故障ランプ点灯処理（EB解除条件を一度でも満たしている場合のみ、またはEB開放スイッチでのオーバーライドは例外）
+                        if (hasEverMetReleaseConditions || emergencyBrakeButtonState)
                         {
-                            failureLampOn = true;
-                            UpdateFailureLamp();
-                            System.Diagnostics.Debug.WriteLine("⚠️ 故障ランプ点灯 - 起動時EB作動");
+                            if (!failureLampOn)
+                            {
+                                failureLampOn = true;
+                                UpdateFailureLamp();
+                                System.Diagnostics.Debug.WriteLine("⚠️ 故障ランプ点灯 - 起動時EB作動");
+                            }
+                        }
+                        else
+                        {
+                            System.Diagnostics.Debug.WriteLine("ℹ️ 起動時EB作動 - EB解除条件未達成のため故障ランプ点灯をスキップ");
                         }
                     }
                 }
