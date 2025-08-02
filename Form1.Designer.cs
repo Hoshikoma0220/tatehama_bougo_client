@@ -1,4 +1,6 @@
-﻿namespace tatehama_bougo_client;
+﻿using System.Drawing;
+
+namespace tatehama_bougo_client;
 
 partial class Form1
 {
@@ -48,9 +50,9 @@ partial class Form1
         // 
         // power
         // 
-        power.BackColor = SystemColors.ControlDarkDark;
-        power.Image = tatehama_bougo_client.RetsubanWindow.RetsubanResource.power_on;
-        power.Location = new Point(37, 51);
+        power.BackColor = Color.Transparent;
+        // power.Image = null; // 電源ランプは初期状態で消灯
+        power.Location = new Point(37, 47);
         power.Name = "power";
         power.Size = new Size(62, 55);
         power.SizeMode = PictureBoxSizeMode.Zoom;
@@ -59,9 +61,9 @@ partial class Form1
         // 
         // fail
         // 
-        fail.BackColor = SystemColors.ControlDarkDark;
-        fail.Image = tatehama_bougo_client.RetsubanWindow.RetsubanResource.kosyou;
-        fail.Location = new Point(98, 51);
+        fail.BackColor = Color.Transparent;
+        // fail.Image = null; // 故障ランプは最初は点灯していない
+        fail.Location = new Point(98, 47);
         fail.Name = "fail";
         fail.Size = new Size(64, 56);
         fail.SizeMode = PictureBoxSizeMode.Zoom;
@@ -70,8 +72,9 @@ partial class Form1
         // 
         // retuban
         // 
-        retuban.BackColor = SystemColors.ControlDarkDark;
-        retuban.Image = tatehama_bougo_client.RetsubanWindow.RetsubanResource.Button_Retsuban;
+        retuban.BackColor = Color.Transparent;
+        retuban.Cursor = Cursors.Hand;
+        retuban.Image = Image.FromFile("Images/Button_Retsuban.png");
         retuban.Location = new Point(520, 350);
         retuban.Name = "retuban";
         retuban.Size = new Size(96, 57);
@@ -81,8 +84,9 @@ partial class Form1
         // 
         // EBkaihou
         // 
-        EBkaihou.BackColor = SystemColors.Control;
-        EBkaihou.Image = tatehama_bougo_client.RetsubanWindow.RetsubanResource.EBkaihou_off1;
+        EBkaihou.BackColor = Color.Transparent;
+        EBkaihou.Cursor = Cursors.Hand;
+        EBkaihou.Image = Image.FromFile("Images/EBkaihou_off.png");
         EBkaihou.Location = new Point(434, 344);
         EBkaihou.Name = "EBkaihou";
         EBkaihou.Size = new Size(70, 63);
@@ -92,8 +96,9 @@ partial class Form1
         // 
         // bougo
         // 
-        bougo.BackColor = SystemColors.ControlDarkDark;
-        bougo.Image = (Image)resources.GetObject("bougo.Image");
+        bougo.BackColor = Color.Transparent;
+        bougo.Cursor = Cursors.Hand;
+        bougo.Image = Image.FromFile("Images/bougomusen.png");
         bougo.Location = new Point(98, 220);
         bougo.Name = "bougo";
         bougo.Size = new Size(126, 128);
@@ -103,8 +108,8 @@ partial class Form1
         // 
         // shiken
         // 
-        shiken.BackColor = SystemColors.ControlDarkDark;
-        shiken.Image = tatehama_bougo_client.RetsubanWindow.RetsubanResource.botan;
+        shiken.BackColor = Color.Transparent;
+        shiken.Image = Image.FromFile("Images/botan.png");
         shiken.Location = new Point(306, 353);
         shiken.Name = "shiken";
         shiken.Size = new Size(51, 56);
@@ -114,8 +119,9 @@ partial class Form1
         // 
         // onryou
         // 
-        onryou.BackColor = SystemColors.ControlDarkDark;
-        onryou.Image = tatehama_bougo_client.RetsubanWindow.RetsubanResource.botan;
+        onryou.BackColor = Color.Transparent;
+        onryou.Cursor = Cursors.Hand;
+        onryou.Image = Image.FromFile("Images/botan.png");
         onryou.Location = new Point(369, 353);
         onryou.Name = "onryou";
         onryou.Size = new Size(51, 56);
@@ -125,12 +131,17 @@ partial class Form1
         // 
         // kosyouLCD
         // 
-        kosyouLCD.AutoSize = true;
-        kosyouLCD.Location = new Point(434, 51);
+        kosyouLCD.AutoSize = false;
+        kosyouLCD.BackColor = Color.Black;
+        kosyouLCD.BorderStyle = BorderStyle.FixedSingle;
+        kosyouLCD.Font = new Font("MS Gothic", 18F, FontStyle.Bold);
+        kosyouLCD.ForeColor = Color.Lime;
+        kosyouLCD.Location = new Point(380, 40);
         kosyouLCD.Name = "kosyouLCD";
-        kosyouLCD.Size = new Size(38, 15);
+        kosyouLCD.Size = new Size(150, 40);
         kosyouLCD.TabIndex = 7;
-        kosyouLCD.Text = "label1";
+        kosyouLCD.Text = "正常";
+        kosyouLCD.TextAlign = ContentAlignment.MiddleCenter;
         // 
         // Form1
         // 
