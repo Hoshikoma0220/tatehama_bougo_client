@@ -51,7 +51,6 @@ partial class Form1
         // power
         // 
         power.BackColor = Color.Transparent;
-        // power.Image = null; // 電源ランプは初期状態で消灯
         power.Location = new Point(37, 47);
         power.Name = "power";
         power.Size = new Size(62, 55);
@@ -62,7 +61,6 @@ partial class Form1
         // fail
         // 
         fail.BackColor = Color.Transparent;
-        // fail.Image = null; // 故障ランプは最初は点灯していない
         fail.Location = new Point(98, 47);
         fail.Name = "fail";
         fail.Size = new Size(64, 56);
@@ -74,7 +72,6 @@ partial class Form1
         // 
         retuban.BackColor = Color.Transparent;
         retuban.Cursor = Cursors.Hand;
-        retuban.Image = Image.FromFile("Images/Button_Retsuban.png");
         retuban.Location = new Point(520, 350);
         retuban.Name = "retuban";
         retuban.Size = new Size(96, 57);
@@ -86,7 +83,6 @@ partial class Form1
         // 
         EBkaihou.BackColor = Color.Transparent;
         EBkaihou.Cursor = Cursors.Hand;
-        EBkaihou.Image = Image.FromFile("Images/EBkaihou_off.png");
         EBkaihou.Location = new Point(434, 344);
         EBkaihou.Name = "EBkaihou";
         EBkaihou.Size = new Size(70, 63);
@@ -98,7 +94,6 @@ partial class Form1
         // 
         bougo.BackColor = Color.Transparent;
         bougo.Cursor = Cursors.Hand;
-        bougo.Image = Image.FromFile("Images/bougomusen.png");
         bougo.Location = new Point(98, 220);
         bougo.Name = "bougo";
         bougo.Size = new Size(126, 128);
@@ -109,7 +104,6 @@ partial class Form1
         // shiken
         // 
         shiken.BackColor = Color.Transparent;
-        shiken.Image = Image.FromFile("Images/botan.png");
         shiken.Location = new Point(306, 353);
         shiken.Name = "shiken";
         shiken.Size = new Size(51, 56);
@@ -121,7 +115,6 @@ partial class Form1
         // 
         onryou.BackColor = Color.Transparent;
         onryou.Cursor = Cursors.Hand;
-        onryou.Image = Image.FromFile("Images/botan.png");
         onryou.Location = new Point(369, 353);
         onryou.Name = "onryou";
         onryou.Size = new Size(51, 56);
@@ -131,16 +124,15 @@ partial class Form1
         // 
         // kosyouLCD
         // 
-        kosyouLCD.AutoSize = false;
-        kosyouLCD.BackColor = Color.Black;
-        kosyouLCD.BorderStyle = BorderStyle.FixedSingle;
-        kosyouLCD.Font = new Font("MS Gothic", 18F, FontStyle.Bold);
+        kosyouLCD.BackColor = Color.FromArgb(40, 60, 40); // LCD風の暗緑色背景
+        kosyouLCD.BorderStyle = BorderStyle.Fixed3D;
+        kosyouLCD.Font = new Font("ＭＳ ゴシック", 28F, FontStyle.Bold); // フォントサイズを大幅に増加
         kosyouLCD.ForeColor = Color.Lime;
-        kosyouLCD.Location = new Point(380, 40);
+        kosyouLCD.Location = new Point(306, 19);
         kosyouLCD.Name = "kosyouLCD";
-        kosyouLCD.Size = new Size(150, 40);
+        kosyouLCD.Size = new Size(310, 96);
         kosyouLCD.TabIndex = 7;
-        kosyouLCD.Text = "正常";
+        kosyouLCD.Text = ""; // 初期表示は空
         kosyouLCD.TextAlign = ContentAlignment.MiddleCenter;
         // 
         // Form1
@@ -169,7 +161,6 @@ partial class Form1
         ((System.ComponentModel.ISupportInitialize)shiken).EndInit();
         ((System.ComponentModel.ISupportInitialize)onryou).EndInit();
         ResumeLayout(false);
-        PerformLayout();
     }
 
     #endregion

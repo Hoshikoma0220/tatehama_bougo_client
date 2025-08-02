@@ -81,6 +81,14 @@ namespace tatehama_bougo_client
         private string currentTrainNumber = "--"; // 列番入力画面で設定された列車番号
         private bool isTrainMoving = false; // 列車走行状態
 
+        // 故障コード表示関連
+        private List<string> failureCodes = new List<string>(); // 故障コード一覧
+        private int currentFailureCodeIndex = 0; // 現在表示中の故障コードインデックス
+        private System.Windows.Forms.Timer failureCodeTimer; // 故障コード切り替えタイマー
+        private System.Windows.Forms.Timer dotAnimationTimer; // ドット表示アニメーションタイマー
+        private int dotCount = 0; // ドット表示カウント
+        private bool isDotAnimationActive = false; // ドットアニメーション状態
+
         public Form1()
         {
             InitializeComponent();
@@ -107,6 +115,14 @@ namespace tatehama_bougo_client
             // EB開放点滅タイマーを停止
             ebBlinkTimer?.Stop();
             ebBlinkTimer?.Dispose();
+            
+            // 故障コード表示タイマーを停止
+            failureCodeTimer?.Stop();
+            failureCodeTimer?.Dispose();
+            
+            // ドットアニメーションタイマーを停止
+            dotAnimationTimer?.Stop();
+            dotAnimationTimer?.Dispose();
             
             // アプリケーション終了時に非常ブレーキを確実に解除
             EmergencyBrakeController.OnApplicationExit();
@@ -327,6 +343,19 @@ namespace tatehama_bougo_client
             ebBlinkTimer.Interval = 500; // 500ms間隔で点滅
             ebBlinkTimer.Tick += EBBlinkTimer_Tick;
 
+            // 故障コード表示タイマーを初期化
+            failureCodeTimer = new System.Windows.Forms.Timer();
+            failureCodeTimer.Interval = 2000; // 2秒間隔で切り替え
+            failureCodeTimer.Tick += FailureCodeTimer_Tick;
+
+            // ドットアニメーションタイマーを初期化
+            dotAnimationTimer = new System.Windows.Forms.Timer();
+            dotAnimationTimer.Interval = 300; // 300ms間隔でドット表示
+            dotAnimationTimer.Tick += DotAnimationTimer_Tick;
+
+            // LCD表示を初期化（故障コードなしの状態）
+            UpdateFailureCodeDisplay();
+
             // TrainCrewクライアントを安全に初期化（エラーが発生してもフォーム表示を妨げない）
             try
             {
@@ -490,6 +519,9 @@ namespace tatehama_bougo_client
                     // 故障音中の音量を100%に設定
                     instance.currentVolume = 1.0f;
                     System.Diagnostics.Debug.WriteLine("🔊 故障音音量を100%に設定");
+                    
+                    // 故障コードを追加
+                    instance.AddFailureCode("防護E001");
                 }
                 System.Diagnostics.Debug.WriteLine("故障音ループを開始しました");
             }
@@ -515,6 +547,9 @@ namespace tatehama_bougo_client
                     {
                         System.Diagnostics.Debug.WriteLine($"❌ 故障音停止時音量復旧エラー: {ex.Message}");
                     }
+                    
+                    // 故障コードをクリア
+                    instance.ClearFailureCodes();
                 }
                 System.Diagnostics.Debug.WriteLine("故障音ループを停止しました");
             }
@@ -814,6 +849,9 @@ namespace tatehama_bougo_client
                 // EB開放時の音声再生
                 if (emergencyBrakeButtonState)
                 {
+                    // EB開放時の故障コードを追加
+                    AddFailureCode("防護E005"); // EB開放コード
+                    
                     // EB開放音声をループ再生
                     System.Diagnostics.Debug.WriteLine("🔊 EB開放音声ループ開始");
                     PlayEBKaihouSound();
@@ -834,6 +872,9 @@ namespace tatehama_bougo_client
                 }
                 else
                 {
+                    // EB作動時: EB開放故障コードを削除
+                    RemoveFailureCode("防護E005");
+                    
                     // EB作動時: 音声停止、点滅停止
                     System.Diagnostics.Debug.WriteLine("🔊 EB開放音声ループ停止");
                     StopEBKaihouSound();
@@ -1289,31 +1330,30 @@ namespace tatehama_bougo_client
                 if (ebBlinkState)
                 {
                     fail.Image = Image.FromFile(KosyouNormalImagePath); // 点灯
-                    kosyouLCD.Text = "EB開放";
-                    kosyouLCD.ForeColor = Color.Orange;
-                    kosyouLCD.BackColor = Color.Black;
+                    // EB開放中も故障コード表示（防護E005）
+                    UpdateFailureCodeDisplay();
+                    kosyouLCD.BackColor = Color.FromArgb(40, 60, 40); // LCD風背景
                 }
                 else
                 {
                     fail.Image = null; // 消灯
-                    kosyouLCD.Text = "EB開放";
-                    kosyouLCD.ForeColor = Color.Orange;
-                    kosyouLCD.BackColor = Color.Black;
+                    kosyouLCD.Text = ""; // EB開放中は消灯時にテキストクリア
+                    kosyouLCD.BackColor = Color.FromArgb(40, 60, 40); // LCD風背景
                 }
             }
             else if (failureLampOn)
             {
                 fail.Image = Image.FromFile(KosyouNormalImagePath); // kosyou.pngを使用
-                kosyouLCD.Text = "故障発生";
-                kosyouLCD.ForeColor = Color.Red;
-                kosyouLCD.BackColor = Color.Black; // 黒背景
+                // 故障コード表示（故障時のみ）
+                UpdateFailureCodeDisplay();
+                kosyouLCD.BackColor = Color.FromArgb(40, 60, 40); // LCD風背景
             }
             else
             {
                 fail.Image = null; // 消灯
-                kosyouLCD.Text = "正常";
+                kosyouLCD.Text = ""; // 正常時は何も表示しない
                 kosyouLCD.ForeColor = Color.Lime; // 緑色（LED風）
-                kosyouLCD.BackColor = Color.Black; // 黒背景
+                kosyouLCD.BackColor = Color.FromArgb(40, 60, 40); // LCD風背景
             }
         }
 
@@ -1347,6 +1387,7 @@ namespace tatehama_bougo_client
                         failureLampOn = true;
                         UpdateFailureLamp();
                         PlayKosyouSound();
+                        AddFailureCode("防護E002"); // WebSocket接続タイムアウト
                         System.Diagnostics.Debug.WriteLine("⚠️ 故障ランプ点灯・故障音開始 - WebSocket接続タイムアウト（5秒経過）");
                     }
                     else
@@ -1435,6 +1476,7 @@ namespace tatehama_bougo_client
                                 failureLampOn = true;
                                 UpdateFailureLamp();
                                 PlayKosyouSound();
+                                AddFailureCode("防護E003"); // 条件不満足
                                 
                                 System.Diagnostics.Debug.WriteLine("🚨 5秒経過 - 故障ランプ点灯・EB作動・故障音開始");
                             }
@@ -1497,6 +1539,7 @@ namespace tatehama_bougo_client
                             {
                                 failureLampOn = true;
                                 UpdateFailureLamp();
+                                AddFailureCode("防護E004"); // 起動時EB作動
                                 System.Diagnostics.Debug.WriteLine("⚠️ 故障ランプ点灯 - 起動時EB作動");
                             }
                         }
@@ -1526,6 +1569,130 @@ namespace tatehama_bougo_client
                     }
                 }
             }
+        }
+        
+        // ======== 故障コード表示関連メソッド ========
+        
+        // 故障コードを追加
+        private void AddFailureCode(string code)
+        {
+            if (!failureCodes.Contains(code))
+            {
+                failureCodes.Add(code);
+                System.Diagnostics.Debug.WriteLine($"📟 故障コード追加: {code}");
+                
+                // 最初の故障コードの場合は表示開始
+                if (failureCodes.Count == 1)
+                {
+                    currentFailureCodeIndex = 0;
+                    StartFailureCodeDisplay();
+                }
+            }
+        }
+        
+        // 故障コードをクリア
+        private void ClearFailureCodes()
+        {
+            failureCodes.Clear();
+            currentFailureCodeIndex = 0;
+            failureCodeTimer.Stop();
+            isDotAnimationActive = false;
+            UpdateFailureCodeDisplay(); // 空表示に戻す
+            System.Diagnostics.Debug.WriteLine("📟 故障コード表示クリア");
+        }
+        
+        // 特定の故障コードを削除
+        private void RemoveFailureCode(string code)
+        {
+            if (failureCodes.Contains(code))
+            {
+                failureCodes.Remove(code);
+                System.Diagnostics.Debug.WriteLine($"📟 故障コード削除: {code}");
+                
+                // 現在のインデックスを調整
+                if (currentFailureCodeIndex >= failureCodes.Count && failureCodes.Count > 0)
+                {
+                    currentFailureCodeIndex = 0;
+                }
+                
+                // 故障コードがなくなった場合は表示停止
+                if (failureCodes.Count == 0)
+                {
+                    failureCodeTimer.Stop();
+                    isDotAnimationActive = false;
+                    UpdateFailureCodeDisplay(); // 表示をクリア
+                }
+                else if (failureCodes.Count == 1)
+                {
+                    // 1つだけになった場合は切り替えタイマーを停止
+                    failureCodeTimer.Stop();
+                    isDotAnimationActive = false;
+                    UpdateFailureCodeDisplay();
+                }
+            }
+        }
+        
+        // 故障コード表示開始
+        private void StartFailureCodeDisplay()
+        {
+            if (failureCodes.Count > 0)
+            {
+                // ドットアニメーションは使用せず、直接表示
+                isDotAnimationActive = false;
+                UpdateFailureCodeDisplay();
+                
+                if (failureCodes.Count > 1)
+                {
+                    failureCodeTimer.Start();
+                }
+            }
+        }
+        
+        // 故障コード表示更新
+        private void UpdateFailureCodeDisplay()
+        {
+            if (failureCodes.Count == 0)
+            {
+                // 故障コードがない場合は空表示
+                kosyouLCD.Text = "";
+                kosyouLCD.ForeColor = Color.Lime;
+                return;
+            }
+            
+            // 故障コード表示 - シンプルに故障コードのみ表示
+            string currentCode = failureCodes[currentFailureCodeIndex];
+            kosyouLCD.Text = currentCode;
+            kosyouLCD.ForeColor = Color.Red; // 故障時は赤色
+        }
+        
+        // 故障コード切り替えタイマーイベント
+        private void FailureCodeTimer_Tick(object sender, EventArgs e)
+        {
+            if (failureCodes.Count > 1)
+            {
+                currentFailureCodeIndex = (currentFailureCodeIndex + 1) % failureCodes.Count;
+                
+                // ドットアニメーションなしで直接切り替え
+                isDotAnimationActive = false;
+                UpdateFailureCodeDisplay();
+                
+                System.Diagnostics.Debug.WriteLine($"📟 故障コード切り替え: {failureCodes[currentFailureCodeIndex]}");
+            }
+        }
+        
+        // ドットアニメーションタイマーイベント
+        private void DotAnimationTimer_Tick(object sender, EventArgs e)
+        {
+            dotCount++;
+            
+            if (dotCount > 3)
+            {
+                // ドットアニメーション終了、故障コード表示
+                isDotAnimationActive = false;
+                dotAnimationTimer.Stop();
+            }
+            
+            UpdateFailureCodeDisplay();
         }
     }
 }
