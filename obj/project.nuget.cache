@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "neWM4tYl7fQ=",
+  "dgSpecHash": "/QJ+qoZ9rd4=",
   "success": true,
-  "projectFilePath": "D:\\tatehama\\NEW\\tatehama_bougo_client\\tatehama_bougo_client.csproj",
+  "projectFilePath": "d:\\tatehama\\NEW\\tatehama_bougo_client\\tatehama_bougo_client.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\yuma1\\.nuget\\packages\\naudio\\2.2.1\\naudio.2.2.1.nupkg.sha512",
     "C:\\Users\\yuma1\\.nuget\\packages\\naudio.asio\\2.2.1\\naudio.asio.2.2.1.nupkg.sha512",

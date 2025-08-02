@@ -6,9 +6,120 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Runtime.InteropServices;
 using NAudio.Wave;
+using NAudio.CoreAudioApi;
 
 namespace TakumiteAudioWrapper
 {
+    /// <summary>
+    /// Windows Audio Session管理クラス
+    /// </summary>
+    public static class WindowsAudioManager
+    {
+        private static MMDeviceEnumerator deviceEnumerator;
+        private static MMDevice defaultDevice;
+        private static AudioSessionManager sessionManager;
+
+        static WindowsAudioManager()
+        {
+            try
+            {
+                deviceEnumerator = new MMDeviceEnumerator();
+                defaultDevice = deviceEnumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+                sessionManager = defaultDevice.AudioSessionManager;
+                System.Diagnostics.Debug.WriteLine("✅ Windows Audio Session Manager初期化完了");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"❌ Windows Audio Session Manager初期化失敗: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 現在のプロセスの音量を設定（プロセス固有）
+        /// </summary>
+        public static void SetApplicationVolume(float volume)
+        {
+            try
+            {
+                if (sessionManager == null) return;
+
+                var sessions = sessionManager.Sessions;
+                int currentProcessId = System.Diagnostics.Process.GetCurrentProcess().Id;
+                
+                // 現在のプロセスIDに一致するセッションのみに音量を適用
+                for (int i = 0; i < sessions.Count; i++)
+                {
+                    var session = sessions[i];
+                    
+                    try
+                    {
+                        // プロセスIDが一致するセッションかチェック
+                        if (session.GetProcessID == currentProcessId)
+                        {
+                            var volumeControl = session.SimpleAudioVolume;
+                            if (volumeControl != null)
+                            {
+                                volumeControl.Volume = Math.Max(0.0f, Math.Min(1.0f, volume));
+                                System.Diagnostics.Debug.WriteLine($"🔊 アプリケーション音量設定 (PID:{currentProcessId}): {(int)(volume * 100)}%");
+                                return; // 成功したら終了
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // このセッションは対象外、次へ
+                        continue;
+                    }
+                }
+                
+                System.Diagnostics.Debug.WriteLine($"⚠️ プロセス(PID:{currentProcessId})の音量セッションが見つかりませんでした");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"❌ アプリケーション音量設定エラー: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 現在のプロセスの音量を取得（プロセス固有）
+        /// </summary>
+        public static float GetApplicationVolume()
+        {
+            try
+            {
+                if (sessionManager == null) return 1.0f;
+
+                var sessions = sessionManager.Sessions;
+                int currentProcessId = System.Diagnostics.Process.GetCurrentProcess().Id;
+
+                for (int i = 0; i < sessions.Count; i++)
+                {
+                    var session = sessions[i];
+                    
+                    try
+                    {
+                        // プロセスIDが一致するセッションかチェック
+                        if (session.GetProcessID == currentProcessId)
+                        {
+                            var volumeControl = session.SimpleAudioVolume;
+                            return volumeControl?.Volume ?? 1.0f;
+                        }
+                    }
+                    catch
+                    {
+                        // このセッションは対象外、次へ
+                        continue;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"❌ アプリケーション音量取得エラー: {ex.Message}");
+            }
+            return 1.0f;
+        }
+    }
+
     /// <summary>
     /// オーディオマネージャークラス
     /// </summary>

@@ -102,6 +102,17 @@ namespace tatehama_bougo_client
             shouldPlayKosyouLoop = false; 
             isBougoActive = false;
             
+            // アプリケーション終了時に音量を100%に戻す
+            try
+            {
+                TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(1.0f);
+                System.Diagnostics.Debug.WriteLine("🔊 アプリケーション終了時：音量を100%に復旧");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"❌ 終了時音量復旧エラー: {ex.Message}");
+            }
+            
             // TrainCrewクライアントを安全に切断
             try
             {
@@ -140,6 +151,17 @@ namespace tatehama_bougo_client
                     System.Diagnostics.Debug.WriteLine("🚨 防護無線発砲開始");
                     isBougoActive = true;
                     
+                    // 防護無線開始時にWindows Audio APIで音量を100%に設定
+                    try
+                    {
+                        TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(1.0f);
+                        System.Diagnostics.Debug.WriteLine("🔊 防護無線開始時：Windows Audio APIで100%に設定");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"❌ 防護無線開始時音量設定エラー: {ex.Message}");
+                    }
+                    
                     // 防護無線中の音量を100%に設定
                     currentVolume = 1.0f;
                     System.Diagnostics.Debug.WriteLine("🔊 防護無線音量を100%に設定");
@@ -163,6 +185,17 @@ namespace tatehama_bougo_client
                     
                     // 防護無線を停止
                     bougoF4Audio?.Stop();
+                    
+                    // 防護無線停止時に音量を100%に戻す
+                    try
+                    {
+                        TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(1.0f);
+                        System.Diagnostics.Debug.WriteLine("🔊 防護無線停止時：アプリケーション音量を100%に復旧");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"❌ 防護無線停止時音量復旧エラー: {ex.Message}");
+                    }
                     
                     // 音量はユーザー設定を維持（リセットしない）
                     System.Diagnostics.Debug.WriteLine($"🔊 防護無線停止 - 音量{(int)(currentVolume * 100)}%を維持");
@@ -315,6 +348,17 @@ namespace tatehama_bougo_client
             {
                 shouldPlayLoop = false;
                 System.Diagnostics.Debug.WriteLine("音声ループを停止しました");
+                
+                // 通常音声ループ停止時に音量を100%に戻す
+                try
+                {
+                    TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(1.0f);
+                    System.Diagnostics.Debug.WriteLine("🔊 通常音声ループ停止時：アプリケーション音量を100%に復旧");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"❌ 通常音声ループ停止時音量復旧エラー: {ex.Message}");
+                }
             }
         }
 
@@ -376,6 +420,17 @@ namespace tatehama_bougo_client
                 {
                     instance.StartKosyouLoop();
                     instance.kosyouLoopStarted = true;
+                    
+                    // 故障音再生時にアプリケーション音量を調整（少し下げる）
+                    try
+                    {
+                        TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(0.7f); // 70%に設定
+                        System.Diagnostics.Debug.WriteLine("🔊 故障音再生時：アプリケーション音量を70%に調整");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"❌ 故障音音量調整エラー: {ex.Message}");
+                    }
                 }
                 System.Diagnostics.Debug.WriteLine("故障音ループを開始しました");
             }
@@ -389,6 +444,17 @@ namespace tatehama_bougo_client
                 if (instance != null)
                 {
                     instance.kosyouLoopStarted = false;
+                    
+                    // 故障音停止時にアプリケーション音量を元に戻す
+                    try
+                    {
+                        TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(1.0f); // 100%に戻す
+                        System.Diagnostics.Debug.WriteLine("🔊 故障音停止時：アプリケーション音量を100%に戻す");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"❌ 故障音音量復旧エラー: {ex.Message}");
+                    }
                 }
                 System.Diagnostics.Debug.WriteLine("故障音ループを停止しました");
             }
@@ -403,6 +469,17 @@ namespace tatehama_bougo_client
                 {
                     System.Diagnostics.Debug.WriteLine("🚨 外部から防護無線発砲要求");
                     isBougoActive = true;
+                    
+                    // 外部防護無線開始時にWindows Audio APIで音量を100%に設定
+                    try
+                    {
+                        TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(1.0f);
+                        System.Diagnostics.Debug.WriteLine("🔊 外部防護無線開始時：Windows Audio APIで100%に設定");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"❌ 外部防護無線開始時音量設定エラー: {ex.Message}");
+                    }
                     
                     // 防護無線中の音量を100%に設定
                     instance.currentVolume = 1.0f;
@@ -433,6 +510,17 @@ namespace tatehama_bougo_client
                     
                     // 防護無線を停止
                     instance.bougoF4Audio?.Stop();
+                    
+                    // 外部防護無線停止時に音量を100%に戻す
+                    try
+                    {
+                        TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(1.0f);
+                        System.Diagnostics.Debug.WriteLine("🔊 外部防護無線停止時：アプリケーション音量を100%に復旧");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"❌ 外部防護無線停止時音量復旧エラー: {ex.Message}");
+                    }
                     
                     // 音量はユーザー設定を維持（リセットしない）
                     System.Diagnostics.Debug.WriteLine($"🔊 防護無線停止 - 音量{(int)(instance.currentVolume * 100)}%を維持");
@@ -741,7 +829,6 @@ namespace tatehama_bougo_client
         */
 
         // 故障表示クリック（現在は無効化）
-        /*
         private void fail_Click(object sender, EventArgs e)
         {
             if (!powerOn) return; // 電源OFFの場合は動作しない
@@ -751,7 +838,6 @@ namespace tatehama_bougo_client
                 // 故障音開始
                 PlayKosyouSound();
                 fail.Image = Image.FromFile(KosyouErrorImagePath);
-                fail.BackColor = Color.Red; // 故障状態は赤
                 kosyouLCD.Text = "故障発生";
                 kosyouLCD.ForeColor = Color.Red;
                 System.Diagnostics.Debug.WriteLine("⚠️ 故障音開始");
@@ -761,13 +847,11 @@ namespace tatehama_bougo_client
                 // 故障音停止
                 StopKosyouSound();
                 fail.Image = Image.FromFile(KosyouNormalImagePath);
-                fail.BackColor = Color.Green; // 正常状態は緑
                 kosyouLCD.Text = "正常";
                 kosyouLCD.ForeColor = Color.Green;
                 System.Diagnostics.Debug.WriteLine("✅ 故障音停止");
             }
         }
-        */
 
         // 列番ボタンクリック
         private void retuban_Click(object sender, EventArgs e)
@@ -860,26 +944,37 @@ namespace tatehama_bougo_client
                 System.Diagnostics.Debug.WriteLine("🔊 音量変更: 100%に戻す");
             }
             
-            // シンプルな音量変更方法：停止して即座に再開
-            if (isBougoActive && bougoF4Audio != null)
+            // Windows Audio Session APIを使用してアプリケーション音量を制御
+            try
             {
-                System.Diagnostics.Debug.WriteLine($"🔊 音量変更開始: {(int)(currentVolume * 100)}%");
+                TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(currentVolume);
+                System.Diagnostics.Debug.WriteLine($"🔊 Windows Audio API音量変更完了: {(int)(currentVolume * 100)}%");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"❌ Windows Audio API音量変更エラー: {ex.Message}");
                 
-                try
+                // フォールバック：従来の停止→再開方式
+                if (isBougoActive && bougoF4Audio != null)
                 {
-                    // 停止して即座に新しい音量で再開
-                    bougoF4Audio.Stop();
-                    bougoF4Audio.PlayLoop(currentVolume);
-                    System.Diagnostics.Debug.WriteLine($"🔊 音量変更完了: {(int)(currentVolume * 100)}%");
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"❌ 音量変更エラー: {ex.Message}");
+                    System.Diagnostics.Debug.WriteLine("� フォールバック音量変更を実行");
                     
-                    // エラー時は再度試行
-                    await Task.Delay(50);
-                    bougoF4Audio?.PlayLoop(currentVolume);
-                    System.Diagnostics.Debug.WriteLine($"🔊 リトライ音量変更: {(int)(currentVolume * 100)}%");
+                    try
+                    {
+                        // 停止して即座に新しい音量で再開
+                        bougoF4Audio.Stop();
+                        bougoF4Audio.PlayLoop(currentVolume);
+                        System.Diagnostics.Debug.WriteLine($"🔊 フォールバック音量変更完了: {(int)(currentVolume * 100)}%");
+                    }
+                    catch (Exception fallbackEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"❌ フォールバック音量変更エラー: {fallbackEx.Message}");
+                        
+                        // エラー時は再度試行
+                        await Task.Delay(50);
+                        bougoF4Audio?.PlayLoop(currentVolume);
+                        System.Diagnostics.Debug.WriteLine($"🔊 リトライ音量変更: {(int)(currentVolume * 100)}%");
+                    }
                 }
             }
             
@@ -973,11 +1068,14 @@ namespace tatehama_bougo_client
                 isWebSocketConnected = false;
                 System.Diagnostics.Debug.WriteLine("⚠️ WebSocket接続タイムアウト - 2秒間応答なし");
                 
-                // 故障音は流さない（コメントアウト）
-                // if (initialSetupComplete)
-                // {
-                //     PlayKosyouSound();
-                // }
+                // 故障発生時の処理
+                if (initialSetupComplete && !failureLampOn)
+                {
+                    failureLampOn = true;
+                    UpdateFailureLamp();
+                    PlayKosyouSound();
+                    System.Diagnostics.Debug.WriteLine("⚠️ 故障ランプ点灯・故障音開始 - WebSocket接続タイムアウト");
+                }
             }
 
             // EBを開放できる条件：列車番号設定済み かつ TrainCrew接続済み
@@ -986,17 +1084,66 @@ namespace tatehama_bougo_client
                                currentTrainNumber != "0000" &&
                                isWebSocketConnected; // 自分で管理する接続状態
 
-            if (canReleaseEB && !powerLampOn)
+            if (canReleaseEB)
             {
-                powerLampOn = true;
-                UpdatePowerLamp();
-                System.Diagnostics.Debug.WriteLine("💡 電源ランプ点灯 - EB開放条件満足");
+                // 条件が満たされた場合：電源ランプ点灯、故障状態解除
+                if (!powerLampOn)
+                {
+                    powerLampOn = true;
+                    UpdatePowerLamp();
+                    System.Diagnostics.Debug.WriteLine("💡 電源ランプ点灯 - EB開放条件満足");
+                }
+                
+                // 故障状態解除
+                if (failureLampOn)
+                {
+                    failureLampOn = false;
+                    UpdateFailureLamp();
+                    StopKosyouSound();
+                    System.Diagnostics.Debug.WriteLine("✅ 故障ランプ消灯・故障音停止 - 条件回復");
+                }
+                
+                // 故障検出時間をリセット
+                failureDetectedTime = null;
             }
-            else if (!canReleaseEB && powerLampOn)
+            else
             {
-                powerLampOn = false;
-                UpdatePowerLamp();
-                System.Diagnostics.Debug.WriteLine("💡 電源ランプ消灯 - EB開放条件不満足");
+                // 条件が満たされていない場合：故障検出開始
+                if (initialSetupComplete && isStartupEBActivated)
+                {
+                    if (failureDetectedTime == null)
+                    {
+                        failureDetectedTime = DateTime.Now;
+                        System.Diagnostics.Debug.WriteLine("⚠️ 故障検出開始 - EB開放条件不満足");
+                    }
+                    else
+                    {
+                        // 5秒経過チェック
+                        var elapsedSeconds = (DateTime.Now - failureDetectedTime.Value).TotalSeconds;
+                        
+                        if (elapsedSeconds >= 5.0 && !failureLampOn)
+                        {
+                            // 5秒経過：故障ランプ点灯とEB作動、故障音開始
+                            failureLampOn = true;
+                            UpdateFailureLamp();
+                            PlayKosyouSound();
+                            
+                            // 電源ランプを消灯
+                            powerLampOn = false;
+                            UpdatePowerLamp();
+                            
+                            System.Diagnostics.Debug.WriteLine("🚨 5秒経過 - 故障ランプ点灯・EB作動・故障音開始");
+                        }
+                    }
+                }
+                
+                // 電源ランプを消灯（条件不満足時）
+                if (powerLampOn)
+                {
+                    powerLampOn = false;
+                    UpdatePowerLamp();
+                    System.Diagnostics.Debug.WriteLine("💡 電源ランプ消灯 - EB開放条件不満足");
+                }
             }
 
             // 初期設定完了後、起動時のみEBを作動

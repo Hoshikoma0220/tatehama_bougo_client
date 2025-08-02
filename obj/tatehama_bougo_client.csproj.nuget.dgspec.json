@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "D:\\tatehama\\NEW\\tatehama_bougo_client\\tatehama_bougo_client.csproj": {}
+    "d:\\tatehama\\NEW\\tatehama_bougo_client\\tatehama_bougo_client.csproj": {}
   },
   "projects": {
-    "D:\\tatehama\\NEW\\tatehama_bougo_client\\tatehama_bougo_client.csproj": {
+    "d:\\tatehama\\NEW\\tatehama_bougo_client\\tatehama_bougo_client.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "D:\\tatehama\\NEW\\tatehama_bougo_client\\tatehama_bougo_client.csproj",
+        "projectUniqueName": "d:\\tatehama\\NEW\\tatehama_bougo_client\\tatehama_bougo_client.csproj",
         "projectName": "tatehama_bougo_client",
-        "projectPath": "D:\\tatehama\\NEW\\tatehama_bougo_client\\tatehama_bougo_client.csproj",
+        "projectPath": "d:\\tatehama\\NEW\\tatehama_bougo_client\\tatehama_bougo_client.csproj",
         "packagesPath": "C:\\Users\\yuma1\\.nuget\\packages\\",
-        "outputPath": "D:\\tatehama\\NEW\\tatehama_bougo_client\\obj\\",
+        "outputPath": "d:\\tatehama\\NEW\\tatehama_bougo_client\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
