@@ -25,10 +25,8 @@ namespace tatehama_bougo_client
         private const int HOTKEY_ID_F4 = 2; // F4キー用ホットキーID
         private const uint VK_F4 = 0x73; // F4キーのVirtual Key Code
         
-        private PictureBox retsubanButton;
         private AudioManager audioManager;
         private AudioWrapper bougomusenno;
-        private AudioWrapper bougo; // F4キー用の防護音声
         private AudioWrapper set_trainnum;
         private AudioWrapper set_complete;
         private AudioWrapper kosyou; // 故障音声
@@ -44,19 +42,12 @@ namespace tatehama_bougo_client
 
         // TrainCrew連携関連
         private TrainCrewWebSocketClient trainCrewClient;
-        private Label statusLabel;
-        private Label trainInfoLabel; // 列番入力画面で設定した番号表示用
-        private Label setTrainNumberLabel; // 設定済み列車番号専用表示ラベル
-        private ListBox trackCircuitListBox;
-        private Label zoneInfoLabel;
         private Dictionary<string, string> zoneMappings;
 
         // 非常ブレーキ関連
-        private PictureBox emergencyBrakeReleaseButton;
         private bool emergencyBrakeButtonState = false; // false: 作動状態(非常ブレーキ有効), true: 開放状態(非常ブレーキ無効)
         private string currentTrainNumber = "--"; // 列番入力画面で設定された列車番号
         private bool isTrainMoving = false; // 列車走行状態
-        private Label ebStatusLabel; // EB状態表示ラベル
 
         public Form1()
         {
@@ -192,13 +183,6 @@ namespace tatehama_bougo_client
 
         private void Form1_Load(object sender, EventArgs e)
         {
-            this.Text = "メインウィンドウ";
-            this.Width = 800;
-            this.Height = 600;
-
-            // TrainCrew情報表示エリアの初期化
-            InitializeTrainCrewDisplay();
-
             // 音声管理初期化
             audioManager = new AudioManager();
             bougomusenno = audioManager.AddAudio("Sound/bougomusenno.wav", 1.0f, TakumiteAudioWrapper.AudioType.MainLoop);
@@ -233,28 +217,8 @@ namespace tatehama_bougo_client
                 loopStarted = true;
             }
 
-            retsubanButton = new PictureBox
-            {
-                Image = Image.FromFile("Images/Button_Retsuban.png"),
-                SizeMode = PictureBoxSizeMode.AutoSize,
-                Cursor = Cursors.Hand
-            };
-
-            // ウィンドウ右下に配置
-            retsubanButton.Left = this.ClientSize.Width - retsubanButton.Width - 20;
-            retsubanButton.Top = this.ClientSize.Height - retsubanButton.Height - 40;
-            retsubanButton.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
-
-            retsubanButton.Click += (s, ev) =>
-            {
-                var subWindow = new RetsubanWindow();
-                subWindow.Show(); // ShowDialog() から Show() に変更（非モーダル）
-            };
-
-            this.Controls.Add(retsubanButton);
-
-            // 非常ブレーキ開放スイッチを初期化
-            InitializeEmergencyBrakeUI();
+            // 非常ブレーキロジックを初期化
+            InitializeEmergencyBrakeLogic();
 
             // TrainCrewクライアントを安全に初期化（エラーが発生してもフォーム表示を妨げない）
             try
@@ -264,8 +228,6 @@ namespace tatehama_bougo_client
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"TrainCrewクライアント初期化エラー: {ex.Message}");
-                statusLabel.Text = "TrainCrew: 初期化エラー";
-                statusLabel.ForeColor = Color.Red;
             }
         }
 
@@ -342,27 +304,9 @@ namespace tatehama_bougo_client
             {
                 instance.currentTrainNumber = trainNumber;
                 
-                // 設定済み列車番号ラベルを更新
-                if (instance.setTrainNumberLabel != null)
-                {
-                    if (instance.setTrainNumberLabel.InvokeRequired)
-                    {
-                        instance.setTrainNumberLabel.Invoke(new Action(() =>
-                        {
-                            instance.setTrainNumberLabel.Text = $"設定列車番号: {trainNumber}";
-                            // EmergencyBrakeControllerに列番設定状態を通知
-                            bool isValidTrainNumber = !string.IsNullOrEmpty(trainNumber) && trainNumber != "--" && trainNumber != "0000";
-                            EmergencyBrakeController.SetTrainNumberStatus(isValidTrainNumber);
-                        }));
-                    }
-                    else
-                    {
-                        instance.setTrainNumberLabel.Text = $"設定列車番号: {trainNumber}";
-                        // EmergencyBrakeControllerに列番設定状態を通知
-                        bool isValidTrainNumber = !string.IsNullOrEmpty(trainNumber) && trainNumber != "--" && trainNumber != "0000";
-                        EmergencyBrakeController.SetTrainNumberStatus(isValidTrainNumber);
-                    }
-                }
+                // EmergencyBrakeControllerに列番設定状態を通知
+                bool isValidTrainNumber = !string.IsNullOrEmpty(trainNumber) && trainNumber != "--" && trainNumber != "0000";
+                EmergencyBrakeController.SetTrainNumberStatus(isValidTrainNumber);
                 
                 System.Diagnostics.Debug.WriteLine($"Form1: 列車番号更新 - {trainNumber}");
             }
@@ -497,50 +441,21 @@ namespace tatehama_bougo_client
             });
         }
 
-        private void InitializeEmergencyBrakeUI()
+        private void InitializeEmergencyBrakeLogic()
         {
-            System.Diagnostics.Debug.WriteLine("🚀 EBボタン初期化開始");
+            System.Diagnostics.Debug.WriteLine("🚀 EBロジック初期化開始");
             
-            // EB開放スイッチ（列番ボタンの隣に配置）
-            emergencyBrakeReleaseButton = new PictureBox
-            {
-                Size = new Size(180, 90), // さらに大きくサイズ調整
-                SizeMode = PictureBoxSizeMode.Zoom, // アスペクト比を保持
-                Cursor = Cursors.Hand
-            };
-
             // 初期状態を明示的に設定（作動状態 = false）
             emergencyBrakeButtonState = false;
             
             // EmergencyBrakeControllerに初期状態を通知（作動状態 = オーバーライド無効）
             EmergencyBrakeController.SetEbReleaseOverride(false);
             
-            UpdateEmergencyBrakeButtonDisplay();
-
-            // 列番ボタンの左隣に配置
-            emergencyBrakeReleaseButton.Left = retsubanButton.Left - emergencyBrakeReleaseButton.Width - 10;
-            emergencyBrakeReleaseButton.Top = retsubanButton.Top;
-            emergencyBrakeReleaseButton.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
-
-            emergencyBrakeReleaseButton.Click += HandleEmergencyBrakeReleaseClick;
-
-            this.Controls.Add(emergencyBrakeReleaseButton);
-            System.Diagnostics.Debug.WriteLine($"✅ EBボタンをコントロールに追加: サイズ{emergencyBrakeReleaseButton.Size}, 位置({emergencyBrakeReleaseButton.Left}, {emergencyBrakeReleaseButton.Top})");
-
-            // EB状態表示ラベル
-            ebStatusLabel = new Label
-            {
-                Text = "EB開放スイッチ: オフ",
-                Location = new Point(20, 365),
-                Size = new Size(300, 20),
-                Font = new Font("Arial", 10, FontStyle.Bold),
-                ForeColor = Color.OrangeRed
-            };
-            this.Controls.Add(ebStatusLabel);
-            System.Diagnostics.Debug.WriteLine("✅ EBボタン初期化完了");
+            System.Diagnostics.Debug.WriteLine("✅ EBロジック初期化完了");
         }
 
-        private void HandleEmergencyBrakeReleaseClick(object sender, EventArgs e)
+        // EmergencyBrake状態を更新するメソッド（UI要素なし）
+        public void ToggleEmergencyBrakeState()
         {
             try
             {
@@ -549,9 +464,6 @@ namespace tatehama_bougo_client
                 
                 // EmergencyBrakeControllerに状態を通知
                 EmergencyBrakeController.SetEbReleaseOverride(emergencyBrakeButtonState);
-                
-                // ボタン表示を更新
-                UpdateEmergencyBrakeButtonDisplay();
 
                 string stateText = emergencyBrakeButtonState ? "オン" : "オフ";
                 System.Diagnostics.Debug.WriteLine($"🔘 EB開放スイッチ: {stateText}に変更");
@@ -560,120 +472,6 @@ namespace tatehama_bougo_client
             {
                 System.Diagnostics.Debug.WriteLine($"❌ EB開放スイッチエラー: {ex.Message}");
             }
-        }
-
-        private void UpdateEmergencyBrakeButtonDisplay()
-        {
-            try
-            {
-                if (emergencyBrakeReleaseButton == null) return;
-
-                // 状態に応じて画像を設定
-                // emergencyBrakeButtonState: false = 作動状態(off), true = 開放状態(on)
-                string imagePath = emergencyBrakeButtonState ? "Images/EBkaihou_on.png" : "Images/EBkaihou_off.png";
-                
-                if (File.Exists(imagePath))
-                {
-                    emergencyBrakeReleaseButton.Image?.Dispose();
-                    emergencyBrakeReleaseButton.Image = Image.FromFile(imagePath);
-                    // 画像表示の場合はテキストをクリア
-                    emergencyBrakeReleaseButton.Text = "";
-                    emergencyBrakeReleaseButton.BackColor = Color.Transparent;
-                }
-                else
-                {
-                    System.Diagnostics.Debug.WriteLine($"⚠️ 画像ファイルが見つかりません: {imagePath}");
-                    // 画像が見つからない場合はデフォルト画像で代用
-                    emergencyBrakeReleaseButton.Image?.Dispose();
-                    emergencyBrakeReleaseButton.Image = null;
-                    emergencyBrakeReleaseButton.Text = emergencyBrakeButtonState ? "EB開放" : "EB作動";
-                    emergencyBrakeReleaseButton.BackColor = emergencyBrakeButtonState ? Color.LightGreen : Color.LightCoral;
-                    emergencyBrakeReleaseButton.Font = new Font("Arial", 10, FontStyle.Bold);
-                }
-
-                // 常に操作可能に変更
-                emergencyBrakeReleaseButton.Enabled = true;
-                emergencyBrakeReleaseButton.Cursor = Cursors.Hand;
-
-                // 状態表示ラベルを更新（走行中の表示を削除）
-                if (ebStatusLabel != null)
-                {
-                    string statusText = emergencyBrakeButtonState ? "オン" : "オフ";
-                    ebStatusLabel.Text = $"EB開放スイッチ: {statusText}";
-                    ebStatusLabel.ForeColor = emergencyBrakeButtonState ? Color.Green : Color.OrangeRed;
-                }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"❌ EB表示更新エラー: {ex.Message}");
-            }
-        }
-
-        private void InitializeTrainCrewDisplay()
-        {
-            // 接続状態ラベル
-            statusLabel = new Label
-            {
-                Text = "TrainCrew: 未接続",
-                Location = new Point(20, 20),
-                Size = new Size(300, 30),
-                Font = new Font("Arial", 10, FontStyle.Bold),
-                ForeColor = Color.Red
-            };
-            this.Controls.Add(statusLabel);
-
-            // 設定済み列車番号ラベル（列番設定画面で設定した番号）
-            setTrainNumberLabel = new Label
-            {
-                Text = "設定列車番号: --",
-                Location = new Point(20, 60),
-                Size = new Size(400, 30),
-                Font = new Font("Arial", 14, FontStyle.Bold),
-                ForeColor = Color.DarkBlue,
-                BackColor = Color.LightYellow,
-                BorderStyle = BorderStyle.FixedSingle
-            };
-            this.Controls.Add(setTrainNumberLabel);
-
-            // TrainCrew列車情報ラベル
-            trainInfoLabel = new Label
-            {
-                Text = "TrainCrew列車番号: --",
-                Location = new Point(20, 100),
-                Size = new Size(400, 25),
-                Font = new Font("Arial", 10, FontStyle.Regular),
-                ForeColor = Color.Blue
-            };
-            this.Controls.Add(trainInfoLabel);
-
-            // 軌道回路リストボックス
-            var trackCircuitTitleLabel = new Label
-            {
-                Text = "現在在線している軌道回路:",
-                Location = new Point(20, 135),
-                Size = new Size(200, 20),
-                Font = new Font("Arial", 10, FontStyle.Bold)
-            };
-            this.Controls.Add(trackCircuitTitleLabel);
-
-            trackCircuitListBox = new ListBox
-            {
-                Location = new Point(20, 160),
-                Size = new Size(350, 120),
-                Font = new Font("ＭＳ ゴシック", 9)
-            };
-            this.Controls.Add(trackCircuitListBox);
-
-            // ゾーン情報ラベル
-            zoneInfoLabel = new Label
-            {
-                Text = "現在のゾーン: --",
-                Location = new Point(20, 295),
-                Size = new Size(400, 60),
-                Font = new Font("Arial", 12, FontStyle.Bold),
-                ForeColor = Color.Green
-            };
-            this.Controls.Add(zoneInfoLabel);
         }
 
         private void InitializeTrainCrewClient()
@@ -692,18 +490,7 @@ namespace tatehama_bougo_client
                         // EmergencyBrakeControllerに接続状態を通知
                         EmergencyBrakeController.SetWebSocketStatus(isConnected);
                         
-                        if (statusLabel.InvokeRequired)
-                        {
-                            statusLabel.Invoke(new Action(() => {
-                                statusLabel.Text = $"TrainCrew: {status}";
-                                statusLabel.ForeColor = isConnected ? Color.Green : Color.Red;
-                            }));
-                        }
-                        else
-                        {
-                            statusLabel.Text = $"TrainCrew: {status}";
-                            statusLabel.ForeColor = isConnected ? Color.Green : Color.Red;
-                        }
+                        System.Diagnostics.Debug.WriteLine($"TrainCrew: {status}");
                     }
                     catch (Exception ex)
                     {
@@ -717,11 +504,11 @@ namespace tatehama_bougo_client
                     {
                         if (this.InvokeRequired)
                         {
-                            this.Invoke(new Action(() => UpdateTrainCrewDisplay(data)));
+                            this.Invoke(new Action(() => ProcessTrainCrewData(data)));
                         }
                         else
                         {
-                            UpdateTrainCrewDisplay(data);
+                            ProcessTrainCrewData(data);
                         }
                     }
                     catch (Exception ex)
@@ -741,7 +528,7 @@ namespace tatehama_bougo_client
             }
         }
 
-        private void UpdateTrainCrewDisplay(TrainCrewAPI.TrainCrewStateData data)
+        private void ProcessTrainCrewData(TrainCrewAPI.TrainCrewStateData data)
         {
             try
             {
@@ -750,24 +537,21 @@ namespace tatehama_bougo_client
                 if (data.myTrainData != null)
                 {
                     string trainName = data.myTrainData.diaName ?? "N/A";
-                    trainInfoLabel.Text = $"TrainCrew列車番号: {trainName}";
+                    System.Diagnostics.Debug.WriteLine($"TrainCrew列車番号: {trainName}");
                     
                     // 速度 > 0 または力行・ブレーキノッチが入っている場合は走行中と判定
                     isTrainMoving = data.myTrainData.Speed > 0.1f || 
                                    data.myTrainData.Pnotch > 0 || 
                                    data.myTrainData.Bnotch > 0;
                     
-                    // 走行状態が変化した場合はEB開放スイッチの表示を更新
+                    // 走行状態が変化した場合はログ出力
                     if (wasMoving != isTrainMoving)
                     {
-                        UpdateEmergencyBrakeButtonDisplay();
                         System.Diagnostics.Debug.WriteLine($"🚂 列車走行状態変更: {(isTrainMoving ? "走行中" : "停止中")}");
                     }
                 }
 
-                // 軌道回路リストの更新
-                trackCircuitListBox.Items.Clear();
-                
+                // 軌道回路情報の処理
                 var currentTrackCircuits = new List<string>();
                 var currentZones = new HashSet<string>();
 
@@ -781,7 +565,6 @@ namespace tatehama_bougo_client
                     foreach (var circuit in myTrainCircuits)
                     {
                         currentTrackCircuits.Add(circuit.Name);
-                        trackCircuitListBox.Items.Add(circuit.Name);
 
                         // ゾーンマッピングから対応するゾーンを取得
                         if (zoneMappings.ContainsKey(circuit.Name))
@@ -791,25 +574,15 @@ namespace tatehama_bougo_client
                     }
                 }
 
-                // 軌道回路が見つからない場合の表示
-                if (currentTrackCircuits.Count == 0)
-                {
-                    trackCircuitListBox.Items.Add("(在線軌道回路なし)");
-                }
-
-                // ゾーン情報の更新
+                // ゾーン情報のログ出力
                 if (currentZones.Count > 0)
                 {
                     var zoneList = string.Join(", ", currentZones.OrderBy(z => z));
-                    zoneInfoLabel.Text = $"現在のゾーン: {zoneList}";
-                }
-                else
-                {
-                    zoneInfoLabel.Text = "現在のゾーン: (不明)";
+                    System.Diagnostics.Debug.WriteLine($"現在のゾーン: {zoneList}");
                 }
 
                 // デバッグ情報
-                System.Diagnostics.Debug.WriteLine($"=== TrainCrew表示更新 ===");
+                System.Diagnostics.Debug.WriteLine($"=== TrainCrewデータ処理 ===");
                 System.Diagnostics.Debug.WriteLine($"列車名: {data.myTrainData?.diaName ?? "N/A"}");
                 System.Diagnostics.Debug.WriteLine($"軌道回路数: {currentTrackCircuits.Count}");
                 System.Diagnostics.Debug.WriteLine($"ゾーン数: {currentZones.Count}");
@@ -822,7 +595,7 @@ namespace tatehama_bougo_client
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"表示更新エラー: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"データ処理エラー: {ex.Message}");
             }
         }
     }
