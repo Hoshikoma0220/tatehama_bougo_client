@@ -522,7 +522,7 @@ namespace tatehama_bougo_client
                     System.Diagnostics.Debug.WriteLine("🔊 故障音音量を100%に設定");
                     
                     // 故障コードを追加
-                    instance.AddFailureCode("防護E001");
+                    instance.AddFailureCode("ERR-404");
                 }
                 System.Diagnostics.Debug.WriteLine("故障音ループを開始しました");
             }
@@ -854,7 +854,7 @@ namespace tatehama_bougo_client
                     wasManuallyReleased = true;
                     
                     // EB開放時の故障コードを追加
-                    AddFailureCode("防護E005"); // EB開放コード
+                    AddFailureCode("ERR-403"); // EB開放コード
                     
                     // EB開放時にLCDを確実に設定（専用メソッドで制御）
                     UpdateLCDDisplay();
@@ -880,7 +880,7 @@ namespace tatehama_bougo_client
                 else
                 {
                     // EB作動時: EB開放故障コードを削除
-                    RemoveFailureCode("防護E005");
+                    RemoveFailureCode("ERR-403");
                     
                     // EB作動時: 音声停止、点滅停止
                     System.Diagnostics.Debug.WriteLine("🔊 EB開放音声ループ停止");
@@ -1380,10 +1380,10 @@ namespace tatehama_bougo_client
         // LCDディスプレイ専用の更新メソッド（故障ランプとは完全に独立）
         private void UpdateLCDDisplay()
         {
-            // EB開放中は防護E005を固定表示（点滅しない）
+            // EB開放中はERR-403を固定表示（点滅しない）
             if (emergencyBrakeButtonState)
             {
-                kosyouLCD.Text = "防護E005";
+                kosyouLCD.Text = "ERR-403";
                 kosyouLCD.ForeColor = Color.Red;
                 kosyouLCD.BackColor = Color.FromArgb(40, 60, 40);
                 return; // EB開放中は他の処理をスキップ
@@ -1436,7 +1436,7 @@ namespace tatehama_bougo_client
                         failureLampOn = true;
                         UpdateFailureLamp();
                         PlayKosyouSound();
-                        AddFailureCode("防護E002"); // WebSocket接続タイムアウト
+                        AddFailureCode("ERR-503"); // WebSocket接続タイムアウト
                         System.Diagnostics.Debug.WriteLine("⚠️ 故障ランプ点灯・故障音開始 - WebSocket接続タイムアウト（5秒経過）");
                     }
                     else
@@ -1533,7 +1533,7 @@ namespace tatehama_bougo_client
                                 failureLampOn = true;
                                 UpdateFailureLamp();
                                 PlayKosyouSound();
-                                AddFailureCode("防護E003"); // 条件不満足
+                                AddFailureCode("ERR-400"); // 条件不満足
                                 
                                 System.Diagnostics.Debug.WriteLine("🚨 5秒経過 - 故障ランプ点灯・EB作動・故障音開始");
                             }
@@ -1604,7 +1604,7 @@ namespace tatehama_bougo_client
                             {
                                 failureLampOn = true;
                                 UpdateFailureLamp();
-                                AddFailureCode("防護E004"); // 起動時EB作動
+                                AddFailureCode("ERR-500"); // 起動時EB作動
                                 System.Diagnostics.Debug.WriteLine("⚠️ 故障ランプ点灯 - 起動時EB作動");
                             }
                         }
