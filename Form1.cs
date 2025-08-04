@@ -80,6 +80,7 @@ namespace tatehama_bougo_client
         private bool ebBlinkState = false; // EB開放中の故障ランプ点滅状態
         private string currentTrainNumber = "--"; // 列番入力画面で設定された列車番号
         private bool isTrainMoving = false; // 列車走行状態
+        private bool wasManuallyReleased = false; // 手動でEB開放したかどうかのフラグ
 
         // 故障コード表示関連
         private List<string> failureCodes = new List<string>(); // 故障コード一覧
@@ -849,8 +850,14 @@ namespace tatehama_bougo_client
                 // EB開放時の音声再生
                 if (emergencyBrakeButtonState)
                 {
+                    // 手動でEB開放したフラグを設定
+                    wasManuallyReleased = true;
+                    
                     // EB開放時の故障コードを追加
                     AddFailureCode("防護E005"); // EB開放コード
+                    
+                    // EB開放時にLCDを確実に設定（専用メソッドで制御）
+                    UpdateLCDDisplay();
                     
                     // EB開放音声をループ再生
                     System.Diagnostics.Debug.WriteLine("🔊 EB開放音声ループ開始");
@@ -901,6 +908,7 @@ namespace tatehama_bougo_client
                     ebBlinkTimer.Stop();
                     ebBlinkState = false;
                     UpdateFailureLamp(); // 故障ランプを通常状態に戻す
+                    UpdateLCDDisplay(); // LCD表示も更新
                     System.Diagnostics.Debug.WriteLine("💡 EB作動 - 故障ランプ点滅停止");
                 }
 
@@ -1119,32 +1127,55 @@ namespace tatehama_bougo_client
             {
                 // 既存のRetsubanWindowが開いているかチェック
                 RetsubanWindow existingWindow = null;
-                foreach (Form openForm in Application.OpenForms)
+                
+                // Application.OpenFormsを使って既存の画面を検索
+                var openForms = Application.OpenForms.Cast<Form>().ToList();
+                foreach (Form form in openForms)
                 {
-                    if (openForm is RetsubanWindow)
+                    if (form is RetsubanWindow retsubanForm && !form.IsDisposed && form.Visible)
                     {
-                        existingWindow = openForm as RetsubanWindow;
+                        existingWindow = retsubanForm;
                         break;
                     }
                 }
 
                 if (existingWindow != null)
                 {
-                    // 既存ウィンドウがある場合は閉じる
-                    existingWindow.Close();
-                    System.Diagnostics.Debug.WriteLine("🚊 列番入力画面を閉じました");
+                    // 既存の表示中ウィンドウがある場合は閉じる
+                    try
+                    {
+                        existingWindow.Close();
+                        System.Diagnostics.Debug.WriteLine("🚊 既存の列番入力画面を閉じました");
+                    }
+                    catch (Exception closeEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"❌ 既存画面のクローズ失敗: {closeEx.Message}");
+                    }
                 }
                 else
                 {
-                    // 既存ウィンドウがない場合は新しく開く
+                    // 既存の表示中ウィンドウがない場合は新しく開く
                     var subWindow = new RetsubanWindow();
                     subWindow.Show();
-                    System.Diagnostics.Debug.WriteLine("🚊 列番入力画面を開きました");
+                    subWindow.BringToFront();
+                    System.Diagnostics.Debug.WriteLine("🚊 新しい列番入力画面を開きました");
                 }
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"❌ 列番画面エラー: {ex.Message}");
+                
+                // エラーが発生した場合は新しい画面を開く
+                try
+                {
+                    var subWindow = new RetsubanWindow();
+                    subWindow.Show();
+                    System.Diagnostics.Debug.WriteLine("🚊 エラー回復：列番入力画面を新規作成しました");
+                }
+                catch (Exception innerEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"❌ 列番画面強制作成エラー: {innerEx.Message}");
+                }
             }
         }
 
@@ -1321,37 +1352,55 @@ namespace tatehama_bougo_client
             }
         }
 
-        // 故障ランプの表示を更新
+        // 故障ランプの表示を更新（LCDは一切操作しない）
         private void UpdateFailureLamp()
         {
-            // EB開放中は点滅制御
+            // EB開放中は点滅制御（故障ランプのみ）
             if (emergencyBrakeButtonState)
             {
                 if (ebBlinkState)
                 {
                     fail.Image = Image.FromFile(KosyouNormalImagePath); // 点灯
-                    // EB開放中も故障コード表示（防護E005）
-                    UpdateFailureCodeDisplay();
-                    kosyouLCD.BackColor = Color.FromArgb(40, 60, 40); // LCD風背景
                 }
                 else
                 {
                     fail.Image = null; // 消灯
-                    kosyouLCD.Text = ""; // EB開放中は消灯時にテキストクリア
-                    kosyouLCD.BackColor = Color.FromArgb(40, 60, 40); // LCD風背景
                 }
             }
             else if (failureLampOn)
             {
                 fail.Image = Image.FromFile(KosyouNormalImagePath); // kosyou.pngを使用
-                // 故障コード表示（故障時のみ）
-                UpdateFailureCodeDisplay();
-                kosyouLCD.BackColor = Color.FromArgb(40, 60, 40); // LCD風背景
             }
             else
             {
                 fail.Image = null; // 消灯
-                kosyouLCD.Text = ""; // 正常時は何も表示しない
+            }
+        }
+
+        // LCDディスプレイ専用の更新メソッド（故障ランプとは完全に独立）
+        private void UpdateLCDDisplay()
+        {
+            // EB開放中は防護E005を固定表示（点滅しない）
+            if (emergencyBrakeButtonState)
+            {
+                kosyouLCD.Text = "防護E005";
+                kosyouLCD.ForeColor = Color.Red;
+                kosyouLCD.BackColor = Color.FromArgb(40, 60, 40);
+                return; // EB開放中は他の処理をスキップ
+            }
+
+            // 故障コードがある場合は故障表示
+            if (failureCodes.Count > 0)
+            {
+                string currentCode = failureCodes[currentFailureCodeIndex];
+                kosyouLCD.Text = currentCode;
+                kosyouLCD.ForeColor = Color.Red; // 故障時は赤色
+                kosyouLCD.BackColor = Color.FromArgb(40, 60, 40); // LCD風背景
+            }
+            else
+            {
+                // 正常時は何も表示しない
+                kosyouLCD.Text = "";
                 kosyouLCD.ForeColor = Color.Lime; // 緑色（LED風）
                 kosyouLCD.BackColor = Color.FromArgb(40, 60, 40); // LCD風背景
             }
@@ -1431,6 +1480,13 @@ namespace tatehama_bougo_client
                     System.Diagnostics.Debug.WriteLine("✅ EB開放条件を初回満足 - 以降起動時故障ランプ点灯を許可");
                 }
                 
+                // 条件が満たされた場合は手動開放フラグをリセット
+                if (wasManuallyReleased)
+                {
+                    wasManuallyReleased = false;
+                    System.Diagnostics.Debug.WriteLine("✅ 手動EB開放フラグをリセット - 条件満足");
+                }
+                
                 // 条件が満たされた場合：電源ランプ点灯、故障状態解除
                 if (!powerLampOn)
                 {
@@ -1470,7 +1526,8 @@ namespace tatehama_bougo_client
                         if (elapsedSeconds >= 5.0 && !failureLampOn)
                         {
                             // EB解除条件を一度でも満たしている場合のみ故障判定実行
-                            if (hasEverMetReleaseConditions)
+                            // ただし、手動でEB開放していた場合は故障処理をスキップ
+                            if (hasEverMetReleaseConditions && !wasManuallyReleased)
                             {
                                 // 5秒経過：故障ランプ点灯とEB作動、故障音開始
                                 failureLampOn = true;
@@ -1482,7 +1539,14 @@ namespace tatehama_bougo_client
                             }
                             else
                             {
-                                System.Diagnostics.Debug.WriteLine("ℹ️ 条件不満足による故障検出 - EB解除条件未達成のため故障ランプ・音声をスキップ");
+                                if (wasManuallyReleased)
+                                {
+                                    System.Diagnostics.Debug.WriteLine("ℹ️ 条件不満足による故障検出 - 手動EB開放のため故障ランプ・音声をスキップ");
+                                }
+                                else
+                                {
+                                    System.Diagnostics.Debug.WriteLine("ℹ️ 条件不満足による故障検出 - EB解除条件未達成のため故障ランプ・音声をスキップ");
+                                }
                             }
                             
                             // 電源ランプを消灯
@@ -1533,7 +1597,8 @@ namespace tatehama_bougo_client
                         isStartupEBActivated = true;
                         
                         // 故障ランプ点灯処理（EB解除条件を一度でも満たしている場合のみ、またはEB開放スイッチでのオーバーライドは例外）
-                        if (hasEverMetReleaseConditions || emergencyBrakeButtonState)
+                        // ただし、手動でEB開放していた場合は故障処理をスキップ
+                        if ((hasEverMetReleaseConditions || emergencyBrakeButtonState) && !wasManuallyReleased)
                         {
                             if (!failureLampOn)
                             {
@@ -1545,7 +1610,14 @@ namespace tatehama_bougo_client
                         }
                         else
                         {
-                            System.Diagnostics.Debug.WriteLine("ℹ️ 起動時EB作動 - EB解除条件未達成のため故障ランプ点灯をスキップ");
+                            if (wasManuallyReleased)
+                            {
+                                System.Diagnostics.Debug.WriteLine("ℹ️ 起動時EB作動 - 手動EB開放のため故障ランプ点灯をスキップ");
+                            }
+                            else
+                            {
+                                System.Diagnostics.Debug.WriteLine("ℹ️ 起動時EB作動 - EB解除条件未達成のため故障ランプ点灯をスキップ");
+                            }
                         }
                     }
                 }
@@ -1648,21 +1720,10 @@ namespace tatehama_bougo_client
             }
         }
         
-        // 故障コード表示更新
+        // 故障コード表示更新（新しいLCD専用メソッドを呼び出し）
         private void UpdateFailureCodeDisplay()
         {
-            if (failureCodes.Count == 0)
-            {
-                // 故障コードがない場合は空表示
-                kosyouLCD.Text = "";
-                kosyouLCD.ForeColor = Color.Lime;
-                return;
-            }
-            
-            // 故障コード表示 - シンプルに故障コードのみ表示
-            string currentCode = failureCodes[currentFailureCodeIndex];
-            kosyouLCD.Text = currentCode;
-            kosyouLCD.ForeColor = Color.Red; // 故障時は赤色
+            UpdateLCDDisplay(); // LCD専用メソッドを呼び出し
         }
         
         // 故障コード切り替えタイマーイベント
