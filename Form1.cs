@@ -28,6 +28,7 @@ namespace tatehama_bougo_client
         private AudioManager audioManager;
         private AudioWrapper bougomusenno;
         private AudioWrapper bougoF4Audio; // F4キー用の防護音声
+        private AudioWrapper bougoOtherAudio; // 他列車受報用の防護音声
         private AudioWrapper set_trainnum;
         private AudioWrapper set_complete;
         private AudioWrapper kosyou; // 故障音声
@@ -56,6 +57,7 @@ namespace tatehama_bougo_client
         private static bool shouldPlayEBKaihouLoop = false; // EB開放音ループ制御
         private bool ebKaihouLoopStarted = false; // EB開放音ループ開始状態
         private static bool isBougoActive = false; // 防護無線発砲状態
+        private static bool isBougoOtherActive = false; // 他列車受報状態
         private static bool isKosyouActive = false; // 故障音発生状態
         private static bool isEBKaihouActive = false; // EB開放音発生状態
         private static readonly object audioLock = new object();
@@ -73,6 +75,10 @@ namespace tatehama_bougo_client
         // TrainCrew連携関連
         private TrainCrewWebSocketClient trainCrewClient;
         private Dictionary<string, string> zoneMappings;
+        private TrainCrewAPI.TrainCrewStateData currentTrainCrewData; // 最新のTrainCrewデータ
+        
+        // SignalR防護無線通信関連
+        private BougoSignalRClient bougoSignalRClient;
 
         // 非常ブレーキ関連
         private bool emergencyBrakeButtonState = false; // false: 作動状態(非常ブレーキ有効), true: 開放状態(非常ブレーキ無効)
@@ -105,6 +111,9 @@ namespace tatehama_bougo_client
             // EB開放オーバーライドを確実に無効化（初期状態）
             EmergencyBrakeController.SetEbReleaseOverride(false);
             
+            // SignalRクライアント初期化
+            InitializeSignalRClient();
+            
             // TrainCrew接続はLoad時に行う（フォーム表示を優先）
         }
 
@@ -133,6 +142,7 @@ namespace tatehama_bougo_client
             shouldPlayKosyouLoop = false; 
             shouldPlayEBKaihouLoop = false;
             isBougoActive = false;
+            isBougoOtherActive = false;
             isKosyouActive = false;
             isEBKaihouActive = false;
             
@@ -159,6 +169,184 @@ namespace tatehama_bougo_client
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"TrainCrewクライアント切断エラー: {ex.Message}");
+            }
+            
+            // SignalRクライアントを安全に切断
+            try
+            {
+                bougoSignalRClient?.DisconnectAsync().Wait();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SignalRクライアント切断エラー: {ex.Message}");
+            }
+        }
+        
+        /// <summary>
+        /// SignalRクライアント初期化
+        /// </summary>
+        private void InitializeSignalRClient()
+        {
+            try
+            {
+                bougoSignalRClient = new BougoSignalRClient();
+                
+                // イベント登録
+                bougoSignalRClient.OnBougoFired += OnBougoFiredReceived;
+                bougoSignalRClient.OnBougoStopped += OnBougoStoppedReceived;
+                bougoSignalRClient.OnConnectionChanged += OnSignalRConnectionChanged;
+                bougoSignalRClient.OnError += OnSignalRError;
+                
+                System.Diagnostics.Debug.WriteLine("🔗 SignalRクライアント初期化完了");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"❌ SignalRクライアント初期化エラー: {ex.Message}");
+            }
+        }
+        
+        /// <summary>
+        /// 他列車の防護無線発砲を受信
+        /// </summary>
+        private void OnBougoFiredReceived(string trainNumber, string zone)
+        {
+            if (InvokeRequired)
+            {
+                Invoke(new Action<string, string>(OnBougoFiredReceived), trainNumber, zone);
+                return;
+            }
+            
+            System.Diagnostics.Debug.WriteLine($"🚨 他列車発報受信: {trainNumber} @ {zone}");
+            
+            // 他列車の発砲時は音声を再生（bougoOther.wav があると仮定）
+            PlayOtherTrainBougoSound();
+        }
+        
+        /// <summary>
+        /// 他列車の防護無線停止を受信
+        /// </summary>
+        private void OnBougoStoppedReceived(string trainNumber, string zone)
+        {
+            if (InvokeRequired)
+            {
+                Invoke(new Action<string, string>(OnBougoStoppedReceived), trainNumber, zone);
+                return;
+            }
+            
+            System.Diagnostics.Debug.WriteLine($"🔴 他列車停止受信: {trainNumber} @ {zone}");
+            
+            // 他列車の停止通知処理（必要に応じて音声停止など）
+            StopOtherTrainBougoSound();
+        }
+        
+        /// <summary>
+        /// SignalR接続状態変更
+        /// </summary>
+        private void OnSignalRConnectionChanged(bool isConnected)
+        {
+            if (InvokeRequired)
+            {
+                Invoke(new Action<bool>(OnSignalRConnectionChanged), isConnected);
+                return;
+            }
+            
+            System.Diagnostics.Debug.WriteLine($"🔗 SignalR接続状態: {(isConnected ? "接続中" : "切断")}");
+        }
+        
+        /// <summary>
+        /// SignalRエラー通知
+        /// </summary>
+        private void OnSignalRError(string errorMessage)
+        {
+            if (InvokeRequired)
+            {
+                Invoke(new Action<string>(OnSignalRError), errorMessage);
+                return;
+            }
+            
+            System.Diagnostics.Debug.WriteLine($"❌ SignalRエラー: {errorMessage}");
+        }
+        
+        /// <summary>
+        /// 他列車の防護無線音声を再生
+        /// </summary>
+        private void PlayOtherTrainBougoSound()
+        {
+            lock (audioLock)
+            {
+                if (!isBougoOtherActive)
+                {
+                    System.Diagnostics.Debug.WriteLine("🚨 他列車防護無線受報開始");
+                    isBougoOtherActive = true;
+                    
+                    // 発砲中でない場合のみ受報音を再生（発砲優先）
+                    if (!isBougoActive)
+                    {
+                        bougoOtherAudio?.PlayLoop(currentVolume);
+                        System.Diagnostics.Debug.WriteLine($"🔊 他列車防護無線音声開始: 音量{(int)(currentVolume * 100)}%");
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine("⚠️ 発砲中のため受報音は待機中");
+                    }
+                }
+            }
+        }
+        
+        /// <summary>
+        /// 他列車の防護無線音声を停止
+        /// </summary>
+        private void StopOtherTrainBougoSound()
+        {
+            lock (audioLock)
+            {
+                if (isBougoOtherActive)
+                {
+                    System.Diagnostics.Debug.WriteLine("🔴 他列車防護無線受報停止");
+                    isBougoOtherActive = false;
+                    
+                    // 他列車受報音を停止
+                    bougoOtherAudio?.Stop();
+                    System.Diagnostics.Debug.WriteLine("🔇 他列車防護無線音声停止");
+                }
+            }
+        }
+        
+        /// <summary>
+        /// 現在のゾーン情報を取得
+        /// </summary>
+        private string GetCurrentZone()
+        {
+            try
+            {
+                // 最新のTrainCrewデータから軌道回路情報を取得
+                if (currentTrainCrewData != null && trainCrewClient != null)
+                {
+                    var myTrainCircuits = trainCrewClient.GetMyTrainTrackCircuits(currentTrainCrewData);
+                    var currentZones = new HashSet<string>();
+                    
+                    // 有効な軌道回路からゾーンを抽出
+                    foreach (var circuitName in myTrainCircuits)
+                    {
+                        string zone = trainCrewClient.GetZoneFromTrackCircuit(circuitName);
+                        if (zone != "不明")
+                        {
+                            currentZones.Add(zone);
+                        }
+                    }
+                    
+                    if (currentZones.Count > 0)
+                    {
+                        return string.Join(", ", currentZones.OrderBy(z => z));
+                    }
+                }
+                
+                return "未定義";
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"❌ ゾーン取得エラー: {ex.Message}");
+                return "未定義";
             }
         }
 
@@ -189,6 +377,13 @@ namespace tatehama_bougo_client
                     System.Diagnostics.Debug.WriteLine("🚨 防護無線発砲開始");
                     isBougoActive = true;
                     
+                    // 受報中の場合は受報音を一時停止（発砲優先）
+                    if (isBougoOtherActive)
+                    {
+                        bougoOtherAudio?.Stop();
+                        System.Diagnostics.Debug.WriteLine("⚠️ 発砲優先：受報音を一時停止");
+                    }
+                    
                     // 防護無線開始時にWindows Audio APIで音量を100%に設定
                     try
                     {
@@ -218,6 +413,21 @@ namespace tatehama_bougo_client
                     
                     // 防護無線ボタンの表示を更新
                     UpdateBougoDisplay();
+                    
+                    // SignalRサーバーに発砲通知を送信
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            string currentZone = GetCurrentZone();
+                            await bougoSignalRClient?.FireBougoAsync(currentTrainNumber, currentZone);
+                            System.Diagnostics.Debug.WriteLine($"📡 SignalR発砲通知送信: {currentTrainNumber} @ {currentZone}");
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"❌ SignalR発砲通知エラー: {ex.Message}");
+                        }
+                    });
                 }
                 else
                 {
@@ -252,6 +462,28 @@ namespace tatehama_bougo_client
                     
                     // 防護無線ボタンの表示を更新
                     UpdateBougoDisplay();
+                    
+                    // 受報状態が継続中の場合は受報音を再開
+                    if (isBougoOtherActive)
+                    {
+                        bougoOtherAudio?.PlayLoop(currentVolume);
+                        System.Diagnostics.Debug.WriteLine("🔄 発砲停止：受報音を再開");
+                    }
+                    
+                    // SignalRサーバーに停止通知を送信
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            string currentZone = GetCurrentZone();
+                            await bougoSignalRClient?.StopBougoAsync(currentTrainNumber, currentZone);
+                            System.Diagnostics.Debug.WriteLine($"📡 SignalR停止通知送信: {currentTrainNumber} @ {currentZone}");
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"❌ SignalR停止通知エラー: {ex.Message}");
+                        }
+                    });
                 }
             }
         }
@@ -297,6 +529,7 @@ namespace tatehama_bougo_client
             audioManager = new AudioManager();
             bougomusenno = audioManager.AddAudio("Sound/bougomusenno.wav", 1.0f, TakumiteAudioWrapper.AudioType.MainLoop);
             bougoF4Audio = audioManager.AddAudio("Sound/bougo.wav", 1.0f, TakumiteAudioWrapper.AudioType.MainLoop);
+            bougoOtherAudio = audioManager.AddAudio("Sound/bougoOther.wav", 1.0f, TakumiteAudioWrapper.AudioType.MainLoop);
             set_trainnum = audioManager.AddAudio("Sound/set_trainnum.wav", 1.0f, TakumiteAudioWrapper.AudioType.MainLoop);
             set_complete = audioManager.AddAudio("Sound/set_complete.wav", 1.0f, TakumiteAudioWrapper.AudioType.System);
             kosyou = audioManager.AddAudio("Sound/kosyou.wav", 1.0f, TakumiteAudioWrapper.AudioType.System);
@@ -309,6 +542,7 @@ namespace tatehama_bougo_client
             var exeDir = System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
             var bougoPath = System.IO.Path.Combine(exeDir, "Sound/bougomusenno.wav");
             var bougoF4Path = System.IO.Path.Combine(exeDir, "Sound/bougo.wav");
+            var bougoOtherPath = System.IO.Path.Combine(exeDir, "Sound/bougoOther.wav");
             var trainnumPath = System.IO.Path.Combine(exeDir, "Sound/set_trainnum.wav");
             var completePath = System.IO.Path.Combine(exeDir, "Sound/set_complete.wav");
             var kosyouPath = System.IO.Path.Combine(exeDir, "Sound/kosyou.wav");
@@ -318,6 +552,7 @@ namespace tatehama_bougo_client
             
             System.Diagnostics.Debug.WriteLine($"防護無線: {bougoPath} - {System.IO.File.Exists(bougoPath)}");
             System.Diagnostics.Debug.WriteLine($"防護音F4: {bougoF4Path} - {System.IO.File.Exists(bougoF4Path)}");
+            System.Diagnostics.Debug.WriteLine($"防護受報音: {bougoOtherPath} - {System.IO.File.Exists(bougoOtherPath)}");
             System.Diagnostics.Debug.WriteLine($"列車番号: {trainnumPath} - {System.IO.File.Exists(trainnumPath)}");
             System.Diagnostics.Debug.WriteLine($"完了音: {completePath} - {System.IO.File.Exists(completePath)}");
             System.Diagnostics.Debug.WriteLine($"故障音: {kosyouPath} - {System.IO.File.Exists(kosyouPath)}");
@@ -366,6 +601,19 @@ namespace tatehama_bougo_client
             {
                 System.Diagnostics.Debug.WriteLine($"TrainCrewクライアント初期化エラー: {ex.Message}");
             }
+            
+            // SignalRクライアントの接続を開始（非同期）
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await bougoSignalRClient.ConnectAsync();
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"SignalR接続開始エラー: {ex.Message}");
+                }
+            });
         }
 
         private async void StartSoundLoop()
@@ -383,8 +631,8 @@ namespace tatehama_bougo_client
             {
                 while (shouldPlayLoop)
                 {
-                    // 防護無線発砲中またはEB開放中は通常ループを停止
-                    if (!shouldPlayLoop || isBougoActive || emergencyBrakeButtonState) break;
+                    // 防護無線発砲中、受報中、またはEB開放中は通常ループを停止
+                    if (!shouldPlayLoop || isBougoActive || isBougoOtherActive || emergencyBrakeButtonState) break;
                     
                     // bougomusenno.wavを再生（通常時の防護無線アナウンス）
                     System.Diagnostics.Debug.WriteLine($"防護無線音声開始: {DateTime.Now:HH:mm:ss.fff}");
@@ -394,7 +642,7 @@ namespace tatehama_bougo_client
                     await Task.Delay(bougoDurationMs);
                     System.Diagnostics.Debug.WriteLine($"防護無線音声終了: {DateTime.Now:HH:mm:ss.fff}");
                     
-                    if (!shouldPlayLoop || isBougoActive || emergencyBrakeButtonState) break;
+                    if (!shouldPlayLoop || isBougoActive || isBougoOtherActive || emergencyBrakeButtonState) break;
                     
                     // set_trainnum.wavを再生
                     System.Diagnostics.Debug.WriteLine($"列車番号設定音声開始: {DateTime.Now:HH:mm:ss.fff}");
@@ -989,6 +1237,9 @@ namespace tatehama_bougo_client
         {
             try
             {
+                // 最新のTrainCrewデータを保存
+                currentTrainCrewData = data;
+                
                 // 列車の走行状態を検知
                 bool wasMoving = isTrainMoving;
                 if (data.myTrainData != null)
