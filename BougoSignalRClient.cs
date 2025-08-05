@@ -11,7 +11,11 @@ namespace tatehama_bougo_client
     {
         private HubConnection _connection;
         private bool _isConnected = false;
-        private readonly string _serverUrl = "http://localhost:5233/bougohub"; // ポート番号を5233に修正
+        private string _serverUrl = "http://tatehama.turara.me:5233/bougohub"; // プライマリサーバー
+        private readonly string _fallbackServerUrl = "http://192.168.10.101:5233/bougohub"; // フォールバックサーバー
+        private bool _autoReconnectEnabled = false; // 自動再接続フラグ
+        private readonly int _reconnectDelayMs = 5000; // 再接続間隔（5秒）
+        private bool _useFallbackServer = false; // フォールバックサーバーを使用中かどうか
 
         // イベント
         public event Action<string, string> OnBougoFired;  // 他列車の発報通知
@@ -20,46 +24,101 @@ namespace tatehama_bougo_client
         public event Action<string> OnError; // エラー通知
 
         /// <summary>
-        /// サーバーに接続
+        /// サーバーに接続（自動再接続オプション付き）
         /// </summary>
-        public async Task ConnectAsync()
+        /// <param name="enableAutoReconnect">自動再接続を有効にするか</param>
+        public async Task ConnectAsync(bool enableAutoReconnect = false)
         {
+            _autoReconnectEnabled = enableAutoReconnect;
+            
+            // まずプライマリサーバーを試行
+            string currentServerUrl = _useFallbackServer ? _fallbackServerUrl : _serverUrl;
+            
             try
             {
-                _connection = new HubConnectionBuilder()
-                    .WithUrl(_serverUrl, options =>
-                    {
-                        // HTTPSでない場合のセキュリティ設定を緩和
-                        options.HttpMessageHandlerFactory = handler =>
-                        {
-                            if (handler is HttpClientHandler clientHandler)
-                            {
-                                clientHandler.ServerCertificateCustomValidationCallback = (sender, certificate, chain, sslPolicyErrors) => true;
-                            }
-                            return handler;
-                        };
-                    })
-                    .WithAutomaticReconnect() // 自動再接続を追加
-                    .Build();
-
-                // イベントハンドラー設定
-                SetupEventHandlers();
-
-                // 接続開始
-                await _connection.StartAsync();
-                _isConnected = true;
-                OnConnectionChanged?.Invoke(true);
-                
-                System.Diagnostics.Debug.WriteLine($"🔗 防護無線SignalR接続成功: {_serverUrl}");
+                await TryConnectToServer(currentServerUrl);
+                System.Diagnostics.Debug.WriteLine($"🔗 防護無線SignalR接続成功: {currentServerUrl} (自動再接続: {enableAutoReconnect})");
             }
             catch (Exception ex)
             {
-                _isConnected = false;
-                OnConnectionChanged?.Invoke(false);
-                OnError?.Invoke($"接続エラー: {ex.Message}");
-                System.Diagnostics.Debug.WriteLine($"❌ SignalR接続エラー: {ex.Message}");
-                System.Diagnostics.Debug.WriteLine($"   サーバーURL: {_serverUrl}");
-                System.Diagnostics.Debug.WriteLine($"   詳細: {ex.InnerException?.Message}");
+                System.Diagnostics.Debug.WriteLine($"❌ SignalR接続エラー ({currentServerUrl}): {ex.Message}");
+                
+                // プライマリサーバーが失敗した場合、フォールバックサーバーを試行
+                if (!_useFallbackServer)
+                {
+                    System.Diagnostics.Debug.WriteLine($"🔄 フォールバックサーバーに切り替え: {_fallbackServerUrl}");
+                    _useFallbackServer = true;
+                    
+                    try
+                    {
+                        await TryConnectToServer(_fallbackServerUrl);
+                        System.Diagnostics.Debug.WriteLine($"🔗 フォールバックサーバー接続成功: {_fallbackServerUrl}");
+                    }
+                    catch (Exception fallbackEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"❌ フォールバックサーバー接続エラー: {fallbackEx.Message}");
+                        await HandleConnectionFailure(enableAutoReconnect, fallbackEx);
+                    }
+                }
+                else
+                {
+                    // フォールバックサーバーも失敗した場合、プライマリサーバーに戻してリトライ
+                    System.Diagnostics.Debug.WriteLine($"🔄 プライマリサーバーに戻してリトライ: {_serverUrl}");
+                    _useFallbackServer = false;
+                    await HandleConnectionFailure(enableAutoReconnect, ex);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 指定されたサーバーURLに接続を試行
+        /// </summary>
+        private async Task TryConnectToServer(string serverUrl)
+        {
+            _connection = new HubConnectionBuilder()
+                .WithUrl(serverUrl, options =>
+                {
+                    // HTTPSでない場合のセキュリティ設定を緩和
+                    options.HttpMessageHandlerFactory = handler =>
+                    {
+                        if (handler is HttpClientHandler clientHandler)
+                        {
+                            clientHandler.ServerCertificateCustomValidationCallback = (sender, certificate, chain, sslPolicyErrors) => true;
+                        }
+                        return handler;
+                    };
+                })
+                .WithAutomaticReconnect() // 自動再接続を追加
+                .Build();
+
+            // イベントハンドラー設定
+            SetupEventHandlers();
+
+            // 接続開始
+            await _connection.StartAsync();
+            _isConnected = true;
+            OnConnectionChanged?.Invoke(true);
+        }
+
+        /// <summary>
+        /// 接続失敗時の処理
+        /// </summary>
+        private async Task HandleConnectionFailure(bool enableAutoReconnect, Exception ex)
+        {
+            _isConnected = false;
+            OnConnectionChanged?.Invoke(false);
+            OnError?.Invoke($"接続エラー: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"   詳細: {ex.InnerException?.Message}");
+            
+            // 自動再接続が有効で初回接続に失敗した場合、再接続を試行
+            if (enableAutoReconnect)
+            {
+                System.Diagnostics.Debug.WriteLine($"🔄 {_reconnectDelayMs}ms後に再接続を試行します...");
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(_reconnectDelayMs);
+                    await TryReconnectAsync();
+                });
             }
         }
 
@@ -141,6 +200,119 @@ namespace tatehama_bougo_client
         /// 接続状態を取得
         /// </summary>
         public bool IsConnected => _connection?.State == HubConnectionState.Connected;
+
+        /// <summary>
+        /// サーバーURLを設定
+        /// </summary>
+        /// <param name="serverAddress">サーバーアドレス（例: "192.168.1.100:5233" または "localhost:5233"）</param>
+        public void SetServerUrl(string serverAddress)
+        {
+            if (string.IsNullOrWhiteSpace(serverAddress))
+            {
+                System.Diagnostics.Debug.WriteLine("⚠️ 空のサーバーアドレスが指定されました");
+                return;
+            }
+
+            // プロトコルが指定されていない場合はhttpを追加
+            if (!serverAddress.StartsWith("http://") && !serverAddress.StartsWith("https://"))
+            {
+                serverAddress = "http://" + serverAddress;
+            }
+
+            // /bougohubが付いていない場合は追加
+            if (!serverAddress.EndsWith("/bougohub"))
+            {
+                if (!serverAddress.EndsWith("/"))
+                {
+                    serverAddress += "/bougohub";
+                }
+                else
+                {
+                    serverAddress += "bougohub";
+                }
+            }
+
+            _serverUrl = serverAddress;
+            System.Diagnostics.Debug.WriteLine($"🔧 サーバーURL設定: {_serverUrl}");
+        }
+
+        /// <summary>
+        /// 現在のサーバーURLを取得
+        /// </summary>
+        public string GetServerUrl()
+        {
+            return _useFallbackServer ? _fallbackServerUrl : _serverUrl;
+        }
+
+        /// <summary>
+        /// 現在使用中のサーバー情報を取得
+        /// </summary>
+        public string GetCurrentServerInfo()
+        {
+            string currentUrl = _useFallbackServer ? _fallbackServerUrl : _serverUrl;
+            string serverType = _useFallbackServer ? "フォールバック" : "プライマリ";
+            return $"{serverType}サーバー: {currentUrl}";
+        }
+
+        /// <summary>
+        /// 自動再接続を有効/無効にする
+        /// </summary>
+        /// <param name="enabled">有効にするか</param>
+        public void SetAutoReconnect(bool enabled)
+        {
+            _autoReconnectEnabled = enabled;
+            System.Diagnostics.Debug.WriteLine($"🔧 自動再接続設定: {enabled}");
+        }
+
+        /// <summary>
+        /// 再接続を試行する（内部メソッド）
+        /// </summary>
+        private async Task TryReconnectAsync()
+        {
+            if (!_autoReconnectEnabled)
+            {
+                System.Diagnostics.Debug.WriteLine("⚠️ 自動再接続が無効のため、再接続をスキップ");
+                return;
+            }
+
+            try
+            {
+                string currentUrl = _useFallbackServer ? _fallbackServerUrl : _serverUrl;
+                System.Diagnostics.Debug.WriteLine($"🔄 SignalR再接続を試行中... ({currentUrl})");
+                
+                // 既存の接続があれば破棄
+                if (_connection != null)
+                {
+                    try
+                    {
+                        await _connection.DisposeAsync();
+                    }
+                    catch
+                    {
+                        // 既に破棄されている場合は無視
+                    }
+                    _connection = null;
+                }
+
+                // 新しい接続を作成して接続試行
+                await ConnectAsync(_autoReconnectEnabled);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"❌ SignalR再接続失敗: {ex.Message}");
+                
+                // 再接続に失敗した場合、さらに再試行
+                if (_autoReconnectEnabled)
+                {
+                    System.Diagnostics.Debug.WriteLine($"🔄 {_reconnectDelayMs}ms後に再度再接続を試行します...");
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(_reconnectDelayMs);
+                        await TryReconnectAsync();
+                    });
+                }
+            }
+        }
 
         /// <summary>
         /// イベントハンドラーを設定
@@ -246,22 +418,19 @@ namespace tatehama_bougo_client
                 OnConnectionChanged?.Invoke(false);
                 System.Diagnostics.Debug.WriteLine($"🔌 SignalR接続切断: {error?.Message ?? "正常切断"}");
                 
-                // 5秒後に再接続を試行
-                await Task.Delay(5000);
-                try 
+                // 自動再接続が有効な場合のみ再接続を試行
+                if (_autoReconnectEnabled)
                 {
-                    if (_connection.State == HubConnectionState.Disconnected)
+                    System.Diagnostics.Debug.WriteLine($"🔄 {_reconnectDelayMs}ms後に再接続を試行します...");
+                    _ = Task.Run(async () =>
                     {
-                        System.Diagnostics.Debug.WriteLine("🔄 SignalR再接続を試行中...");
-                        await _connection.StartAsync();
-                        _isConnected = true;
-                        OnConnectionChanged?.Invoke(true);
-                        System.Diagnostics.Debug.WriteLine("🔗 SignalR再接続成功");
-                    }
+                        await Task.Delay(_reconnectDelayMs);
+                        await TryReconnectAsync();
+                    });
                 }
-                catch (Exception ex)
+                else
                 {
-                    System.Diagnostics.Debug.WriteLine($"❌ SignalR再接続失敗: {ex.Message}");
+                    System.Diagnostics.Debug.WriteLine("⚠️ 自動再接続が無効のため、再接続をスキップ");
                 }
             };
             

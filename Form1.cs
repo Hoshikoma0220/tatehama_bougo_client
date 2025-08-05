@@ -207,18 +207,18 @@ namespace tatehama_bougo_client
                 
                 System.Diagnostics.Debug.WriteLine("🔗 SignalRクライアント初期化完了");
                 
-                // 初期化直後に接続を開始（非同期）
+                // 初回自動接続を開始（非同期）
                 _ = Task.Run(async () =>
                 {
                     try
                     {
-                        System.Diagnostics.Debug.WriteLine("🔄 SignalR接続を開始します...");
-                        await bougoSignalRClient.ConnectAsync();
-                        System.Diagnostics.Debug.WriteLine("✅ SignalR接続完了");
+                        System.Diagnostics.Debug.WriteLine("🔄 初回SignalR接続を開始します...");
+                        await bougoSignalRClient.ConnectAsync(enableAutoReconnect: true); // 自動再接続を有効にして接続
+                        System.Diagnostics.Debug.WriteLine("✅ 初回SignalR接続完了");
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"❌ SignalR接続開始エラー: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"❌ 初回SignalR接続エラー: {ex.Message}");
                     }
                 });
             }
@@ -290,10 +290,11 @@ namespace tatehama_bougo_client
             }
             
             string status = isConnected ? "✅ 接続中" : "❌ 切断";
-            System.Diagnostics.Debug.WriteLine($"🔗 SignalR接続状態: {status}");
+            string serverInfo = bougoSignalRClient?.GetCurrentServerInfo() ?? "サーバー情報不明";
+            System.Diagnostics.Debug.WriteLine($"🔗 SignalR接続状態: {status} ({serverInfo})");
             
-            // タイトルバーに接続状態を表示
-            this.Text = $"立濱防護無線クライアント - SignalR: {status}";
+            // タイトルバーに接続状態とサーバー情報を表示
+            this.Text = $"立濱防護無線クライアント - SignalR: {status} ({serverInfo})";
         }
         
         /// <summary>
