@@ -158,11 +158,11 @@ namespace tatehama_bougo_client
             failureDetectedTime = null;
             webSocketTimeoutDetectedTime = null;
             
-            // アプリケーション終了時に音量を100%に戻す
+            // アプリケーション終了時でもユーザー設定音量を維持
             try
             {
-                TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(1.0f);
-                                    System.Diagnostics.Debug.WriteLine("� 防護無線フォールバック音量変更を実行");
+                TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(currentVolume);
+                System.Diagnostics.Debug.WriteLine($"🔊 終了時音量{(int)(currentVolume * 100)}%を維持");
             }
             catch (Exception ex)
             {
@@ -339,9 +339,21 @@ namespace tatehama_bougo_client
                     // 発砲中でない場合のみ受報音を再生（発砲優先）
                     if (!isBougoActive)
                     {
-                        System.Diagnostics.Debug.WriteLine($"   bougoOtherAudio.PlayLoop 実行中... (音量: {currentVolume})");
-                        bougoOtherAudio?.PlayLoop(currentVolume);
-                        System.Diagnostics.Debug.WriteLine($"🔊 他列車防護無線音声開始: 音量{(int)(currentVolume * 100)}%");
+                        // 音声再生前に音量を必ず100%に設定
+                        try
+                        {
+                            TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(1.0f);
+                            currentVolume = 1.0f; // currentVolumeも100%に更新
+                            System.Diagnostics.Debug.WriteLine("🔊 受報音再生前：音量を100%に設定");
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"❌ 受報音再生前音量設定エラー: {ex.Message}");
+                        }
+                        
+                        System.Diagnostics.Debug.WriteLine($"   bougoOtherAudio.PlayLoop 実行中... (音量: 100%)");
+                        bougoOtherAudio?.PlayLoop(1.0f);
+                        System.Diagnostics.Debug.WriteLine($"🔊 他列車防護無線音声開始: 音量100%");
                     }
                     else
                     {
@@ -526,20 +538,19 @@ namespace tatehama_bougo_client
                         System.Diagnostics.Debug.WriteLine("⚠️ 発砲優先：受報音を一時停止");
                     }
                     
-                    // 防護無線開始時にWindows Audio APIで音量を100%に設定
+                    // 防護無線開始時にWindows Audio APIで現在の音量を維持
                     try
                     {
-                        TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(1.0f);
-                        System.Diagnostics.Debug.WriteLine("🔊 防護無線開始時：Windows Audio APIで100%に設定");
+                        TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(currentVolume);
+                        System.Diagnostics.Debug.WriteLine($"🔊 防護無線開始時：Windows Audio APIで{(int)(currentVolume * 100)}%に設定");
                     }
                     catch (Exception ex)
                     {
                         System.Diagnostics.Debug.WriteLine($"❌ 防護無線開始時音量設定エラー: {ex.Message}");
                     }
                     
-                    // 防護無線中の音量を100%に設定
-                    currentVolume = 1.0f;
-                    System.Diagnostics.Debug.WriteLine("🔊 防護無線音量を100%に設定");
+                    // 防護無線中も現在の音量を維持
+                    System.Diagnostics.Debug.WriteLine($"🔊 防護無線音量を{(int)(currentVolume * 100)}%で開始");
                     
                     // 防護無線中: 通常音声ループのみ停止（他の音声は継続）
                     shouldPlayLoop = false;
@@ -550,8 +561,20 @@ namespace tatehama_bougo_client
                     System.Diagnostics.Debug.WriteLine("� 防護無線発砲中 - 故障音・EB開放音は継続再生");
                     
                     // PlayLoopで継続再生（100%音量）
-                    bougoF4Audio?.PlayLoop(currentVolume);
-                    System.Diagnostics.Debug.WriteLine($"🔊 防護無線開始: 音量{(int)(currentVolume * 100)}%");
+                    // 発砲音再生前に音量を100%に設定
+                    try
+                    {
+                        TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(1.0f);
+                        currentVolume = 1.0f; // currentVolumeも100%に更新
+                        System.Diagnostics.Debug.WriteLine("🔊 発砲音再生前：音量を100%に設定");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"❌ 発砲音再生前音量設定エラー: {ex.Message}");
+                    }
+                    
+                    bougoF4Audio?.PlayLoop(1.0f);
+                    System.Diagnostics.Debug.WriteLine("🔊 防護無線開始: 音量100%");
                     
                     // 防護無線ボタンの表示を更新
                     UpdateBougoDisplay();
@@ -596,19 +619,16 @@ namespace tatehama_bougo_client
                     // 防護無線を停止
                     bougoF4Audio?.Stop();
                     
-                    // 防護無線停止時に音量を100%に戻す
+                    // 音量はユーザー設定を維持（リセットしない）
                     try
                     {
-                        TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(1.0f);
-                        System.Diagnostics.Debug.WriteLine("🔊 防護無線停止時：アプリケーション音量を100%に復旧");
+                        TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(currentVolume);
+                        System.Diagnostics.Debug.WriteLine($"🔊 防護無線停止時：音量{(int)(currentVolume * 100)}%を維持");
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"❌ 防護無線停止時音量復旧エラー: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"❌ 防護無線停止時音量設定エラー: {ex.Message}");
                     }
-                    
-                    // 音量はユーザー設定を維持（リセットしない）
-                    System.Diagnostics.Debug.WriteLine($"🔊 防護無線停止 - 音量{(int)(currentVolume * 100)}%を維持");
                     
                     // 通常音声ループを再開
                     shouldPlayLoop = true;
@@ -884,15 +904,15 @@ namespace tatehama_bougo_client
                 shouldPlayLoop = false;
                 System.Diagnostics.Debug.WriteLine("音声ループを停止しました");
                 
-                // 通常音声ループ停止時に音量を100%に戻す
+                // 通常音声ループ停止時も現在の音量を維持
                 try
                 {
-                    TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(1.0f);
-                    System.Diagnostics.Debug.WriteLine("🔊 通常音声ループ停止時：アプリケーション音量を100%に復旧");
+                    TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(instance.currentVolume);
+                    System.Diagnostics.Debug.WriteLine($"🔊 通常音声ループ停止時：アプリケーション音量を{(int)(instance.currentVolume * 100)}%で維持");
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"❌ 通常音声ループ停止時音量復旧エラー: {ex.Message}");
+                    System.Diagnostics.Debug.WriteLine($"❌ 通常音声ループ停止時音量維持エラー: {ex.Message}");
                 }
             }
         }
@@ -903,23 +923,24 @@ namespace tatehama_bougo_client
             // まず既存の音声を停止
             shouldPlayLoop = false;
             
-            // 完了音再生時にWindows Audio APIで音量を100%に設定
+            // 完了音再生前にWindows Audio APIで100%に設定
             try
             {
                 TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(1.0f);
-                System.Diagnostics.Debug.WriteLine("🔊 完了音再生時：Windows Audio APIで100%に設定");
+                currentVolume = 1.0f; // currentVolumeも100%に更新
+                System.Diagnostics.Debug.WriteLine("🔊 完了音再生前：Windows Audio APIで100%に設定");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"❌ 完了音再生時音量設定エラー: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"❌ 完了音再生前音量設定エラー: {ex.Message}");
             }
             
             // 少し待ってから完了音を再生
             Task.Run(async () =>
             {
                 await Task.Delay(500); // 既存音声の停止を待つ
-                set_complete?.PlayOnce(systemVolume);
-                System.Diagnostics.Debug.WriteLine("完了音を再生しました");
+                set_complete?.PlayOnce(1.0f); // 100%で再生
+                System.Diagnostics.Debug.WriteLine("完了音を100%で再生しました");
             });
         }
 
@@ -972,23 +993,22 @@ namespace tatehama_bougo_client
                 isKosyouActive = true; // 故障音発生状態に設定
                 if (instance != null && !instance.kosyouLoopStarted)
                 {
-                    instance.StartKosyouLoop();
-                    instance.kosyouLoopStarted = true;
-                    
-                    // 故障音開始時にWindows Audio APIで音量を100%に設定
+                    // 故障音開始時にWindows Audio APIで100%に設定
                     try
                     {
                         TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(1.0f);
-                        System.Diagnostics.Debug.WriteLine("🔊 故障音開始時：Windows Audio APIで100%に設定");
+                        instance.currentVolume = 1.0f; // currentVolumeも100%に更新
+                        System.Diagnostics.Debug.WriteLine("🔊 故障音開始前：Windows Audio APIで100%に設定");
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"❌ 故障音開始時音量設定エラー: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"❌ 故障音開始前音量設定エラー: {ex.Message}");
                     }
                     
-                    // 故障音中の音量を100%に設定
-                    instance.currentVolume = 1.0f;
-                    System.Diagnostics.Debug.WriteLine("🔊 故障音音量を100%に設定");
+                    instance.StartKosyouLoop();
+                    instance.kosyouLoopStarted = true;
+                    
+                    System.Diagnostics.Debug.WriteLine("🔊 故障音音量を100%で開始");
                     
                     // 故障コードを追加
                     instance.AddFailureCode("ERR-404");
@@ -1007,15 +1027,15 @@ namespace tatehama_bougo_client
                 {
                     instance.kosyouLoopStarted = false;
                     
-                    // 故障音停止時にアプリケーション音量を100%に戻す
+                    // 故障音停止時も現在の音量を維持
                     try
                     {
-                        TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(1.0f);
-                        System.Diagnostics.Debug.WriteLine("🔊 故障音停止時：アプリケーション音量を100%に復旧");
+                        TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(instance.currentVolume);
+                        System.Diagnostics.Debug.WriteLine($"🔊 故障音停止時：アプリケーション音量を{(int)(instance.currentVolume * 100)}%で維持");
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"❌ 故障音停止時音量復旧エラー: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"❌ 故障音停止時音量維持エラー: {ex.Message}");
                     }
                     
                     // 故障コードをクリア
@@ -1040,23 +1060,22 @@ namespace tatehama_bougo_client
                 isEBKaihouActive = true; // EB開放音発生状態に設定
                 if (instance != null && !instance.ebKaihouLoopStarted)
                 {
-                    instance.StartEBKaihouLoop();
-                    instance.ebKaihouLoopStarted = true;
-                    
-                    // EB開放音開始時にWindows Audio APIで音量を100%に設定
+                    // EB開放音開始時にWindows Audio APIで100%に設定
                     try
                     {
                         TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(1.0f);
-                        System.Diagnostics.Debug.WriteLine("🔊 EB開放音開始時：Windows Audio APIで100%に設定");
+                        instance.currentVolume = 1.0f; // currentVolumeも100%に更新
+                        System.Diagnostics.Debug.WriteLine("🔊 EB開放音開始前：Windows Audio APIで100%に設定");
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"❌ EB開放音開始時音量設定エラー: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"❌ EB開放音開始前音量設定エラー: {ex.Message}");
                     }
                     
-                    // EB開放音中の音量を100%に設定
-                    instance.currentVolume = 1.0f;
-                    System.Diagnostics.Debug.WriteLine("🔊 EB開放音音量を100%に設定");
+                    instance.StartEBKaihouLoop();
+                    instance.ebKaihouLoopStarted = true;
+                    
+                    System.Diagnostics.Debug.WriteLine("🔊 EB開放音音量を100%で開始");
                 }
                 System.Diagnostics.Debug.WriteLine("EB開放音ループを開始しました");
             }
@@ -1072,15 +1091,15 @@ namespace tatehama_bougo_client
                 {
                     instance.ebKaihouLoopStarted = false;
                     
-                    // EB開放音停止時にアプリケーション音量を100%に戻す
+                    // EB開放音停止時も現在の音量を維持
                     try
                     {
-                        TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(1.0f);
-                        System.Diagnostics.Debug.WriteLine("🔊 EB開放音停止時：アプリケーション音量を100%に復旧");
+                        TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(instance.currentVolume);
+                        System.Diagnostics.Debug.WriteLine($"🔊 EB開放音停止時：アプリケーション音量を{(int)(instance.currentVolume * 100)}%で維持");
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"❌ EB開放音停止時音量復旧エラー: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"❌ EB開放音停止時音量維持エラー: {ex.Message}");
                     }
                 }
                 System.Diagnostics.Debug.WriteLine("EB開放音ループを停止しました");
@@ -1097,20 +1116,19 @@ namespace tatehama_bougo_client
                     System.Diagnostics.Debug.WriteLine("🚨 外部から防護無線発砲要求");
                     isBougoActive = true;
                     
-                    // 外部防護無線開始時にWindows Audio APIで音量を100%に設定
+                    // 外部防護無線開始時にWindows Audio APIで現在の音量を維持
                     try
                     {
-                        TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(1.0f);
-                        System.Diagnostics.Debug.WriteLine("🔊 外部防護無線開始時：Windows Audio APIで100%に設定");
+                        TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(instance.currentVolume);
+                        System.Diagnostics.Debug.WriteLine($"🔊 外部防護無線開始時：Windows Audio APIで{(int)(instance.currentVolume * 100)}%に設定");
                     }
                     catch (Exception ex)
                     {
                         System.Diagnostics.Debug.WriteLine($"❌ 外部防護無線開始時音量設定エラー: {ex.Message}");
                     }
                     
-                    // 防護無線中の音量を100%に設定
-                    instance.currentVolume = 1.0f;
-                    System.Diagnostics.Debug.WriteLine("🔊 外部防護無線音量を100%に設定");
+                    // 外部防護無線中も現在の音量を維持
+                    System.Diagnostics.Debug.WriteLine($"🔊 外部防護無線音量を{(int)(instance.currentVolume * 100)}%で開始");
                     
                     // 外部防護無線中: 通常音声ループのみ停止（他の音声は継続）
                     shouldPlayLoop = false;
@@ -1121,7 +1139,7 @@ namespace tatehama_bougo_client
                     System.Diagnostics.Debug.WriteLine("� 外部防護無線発砲中 - 故障音・EB開放音は継続再生");
                     
                     // PlayLoopで継続再生（100%音量）
-                    instance.bougoF4Audio?.PlayLoop(instance.currentVolume);
+                    instance.bougoF4Audio?.PlayLoop(1.0f);
                     System.Diagnostics.Debug.WriteLine($"🔊 外部防護無線開始: 音量{(int)(instance.currentVolume * 100)}%");
                     
                     // UI更新
@@ -1142,19 +1160,16 @@ namespace tatehama_bougo_client
                     // 防護無線を停止
                     instance.bougoF4Audio?.Stop();
                     
-                    // 外部防護無線停止時に音量を100%に戻す
+                    // 音量はユーザー設定を維持（リセットしない）
                     try
                     {
-                        TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(1.0f);
-                        System.Diagnostics.Debug.WriteLine("🔊 外部防護無線停止時：アプリケーション音量を100%に復旧");
+                        TakumiteAudioWrapper.WindowsAudioManager.SetApplicationVolume(instance.currentVolume);
+                        System.Diagnostics.Debug.WriteLine($"🔊 外部防護無線停止時：音量{(int)(instance.currentVolume * 100)}%を維持");
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"❌ 外部防護無線停止時音量復旧エラー: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"❌ 外部防護無線停止時音量設定エラー: {ex.Message}");
                     }
-                    
-                    // 音量はユーザー設定を維持（リセットしない）
-                    System.Diagnostics.Debug.WriteLine($"🔊 防護無線停止 - 音量{(int)(instance.currentVolume * 100)}%を維持");
                     
                     // 通常音声ループを再開
                     shouldPlayLoop = true;
@@ -1679,17 +1694,11 @@ namespace tatehama_bougo_client
         {
             System.Diagnostics.Debug.WriteLine("🔊 音量ボタンがクリックされました");
             
+            // 電源ONの場合のみ音量調整可能（音声の種類に関係なく）
             if (!powerOn) 
             {
                 System.Diagnostics.Debug.WriteLine("🔊 音量調整無効 - 電源オフ");
                 return; // 電源OFFの場合は動作しない
-            }
-            
-            // 防護無線発砲中または故障音発生中またはEB開放音発生中のみ音量調整可能
-            if (!isBougoActive && !isKosyouActive && !isEBKaihouActive) 
-            {
-                System.Diagnostics.Debug.WriteLine("🔊 音量調整無効 - 防護無線・故障音・EB開放音すべて停止中");
-                return;
             }
             
             // 現在の音量をログ出力
@@ -1717,35 +1726,53 @@ namespace tatehama_bougo_client
             {
                 System.Diagnostics.Debug.WriteLine($"❌ Windows Audio API音量変更エラー: {ex.Message}");
                 
-                // フォールバック：従来の停止→再開方式
-                if (isBougoActive && bougoF4Audio != null)
+                // フォールバック：各種音声の停止→再開
+                System.Diagnostics.Debug.WriteLine("🔊 フォールバック音量変更を実行");
+                
+                try
                 {
-                    System.Diagnostics.Debug.WriteLine("� フォールバック音量変更を実行");
-                    
-                    try
+                    // 防護無線発砲音の音量変更
+                    if (isBougoActive && bougoF4Audio != null)
                     {
-                        // 停止して即座に新しい音量で再開
                         bougoF4Audio.Stop();
                         bougoF4Audio.PlayLoop(currentVolume);
-                        System.Diagnostics.Debug.WriteLine($"🔊 フォールバック音量変更完了: {(int)(currentVolume * 100)}%");
+                        System.Diagnostics.Debug.WriteLine($"🔊 防護無線音量変更: {(int)(currentVolume * 100)}%");
                     }
-                    catch (Exception fallbackEx)
+                    
+                    // 他列車受報音の音量変更
+                    if (isBougoOtherActive && bougoOtherAudio != null)
                     {
-                        System.Diagnostics.Debug.WriteLine($"❌ フォールバック音量変更エラー: {fallbackEx.Message}");
-                        
-                        // エラー時は再度試行
-                        await Task.Delay(50);
-                        bougoF4Audio?.PlayLoop(currentVolume);
-                        System.Diagnostics.Debug.WriteLine($"🔊 リトライ音量変更: {(int)(currentVolume * 100)}%");
+                        bougoOtherAudio.Stop();
+                        bougoOtherAudio.PlayLoop(currentVolume);
+                        System.Diagnostics.Debug.WriteLine($"🔊 受報音量変更: {(int)(currentVolume * 100)}%");
                     }
+                    
+                    // 故障音の音量変更（Windows Audio APIで制御）
+                    if (isKosyouActive)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"🔊 故障音量変更: {(int)(currentVolume * 100)}%");
+                    }
+                    
+                    // EB開放音の音量変更（Windows Audio APIで制御）
+                    if (isEBKaihouActive)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"🔊 EB開放音量変更: {(int)(currentVolume * 100)}%");
+                    }
+                    
+                    System.Diagnostics.Debug.WriteLine($"🔊 フォールバック音量変更完了: {(int)(currentVolume * 100)}%");
                 }
-                
-                // 故障音の場合のフォールバック（故障音は再開ではなく音量変更のみ）
-                if (isKosyouActive)
+                catch (Exception fallbackEx)
                 {
-                    System.Diagnostics.Debug.WriteLine("🔄 故障音フォールバック音量変更を実行");
-                    // 故障音は連続ループなので、Windows Audio APIの変更のみで対応
-                    // 特別な処理は不要（既にtry節で実行済み）
+                    System.Diagnostics.Debug.WriteLine($"❌ フォールバック音量変更エラー: {fallbackEx.Message}");
+                    
+                    // エラー時は再度試行
+                    await Task.Delay(50);
+                    
+                    // 再試行
+                    if (isBougoActive) bougoF4Audio?.PlayLoop(currentVolume);
+                    if (isBougoOtherActive) bougoOtherAudio?.PlayLoop(currentVolume);
+                    
+                    System.Diagnostics.Debug.WriteLine($"🔊 リトライ音量変更: {(int)(currentVolume * 100)}%");
                 }
             }
             
