@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("tatehama_bougo_client")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+58dd54124a176fdf70e1589128c9e9cae3eeaa30")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+be12a60530fd4b4094aad543d186ef2bc0eea081")]
 [assembly: System.Reflection.AssemblyProductAttribute("tatehama_bougo_client")]
 [assembly: System.Reflection.AssemblyTitleAttribute("tatehama_bougo_client")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

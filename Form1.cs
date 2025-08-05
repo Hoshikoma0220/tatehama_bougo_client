@@ -88,6 +88,10 @@ namespace tatehama_bougo_client
         private bool isTrainMoving = false; // 列車走行状態
         private bool wasManuallyReleased = false; // 手動でEB開放したかどうかのフラグ
 
+        // 受報時点滅関連
+        private System.Windows.Forms.Timer bougoBlinkTimer; // 受報時の防護無線ボタン点滅タイマー
+        private bool bougoBlinkState = false; // 受報時の防護無線ボタン点滅状態
+
         // 故障コード表示関連
         private List<string> failureCodes = new List<string>(); // 故障コード一覧
         private int currentFailureCodeIndex = 0; // 現在表示中の故障コードインデックス
@@ -125,6 +129,10 @@ namespace tatehama_bougo_client
             // EB開放点滅タイマーを停止
             ebBlinkTimer?.Stop();
             ebBlinkTimer?.Dispose();
+            
+            // 受報点滅タイマーを停止
+            bougoBlinkTimer?.Stop();
+            bougoBlinkTimer?.Dispose();
             
             // 故障コード表示タイマーを停止
             failureCodeTimer?.Stop();
@@ -198,6 +206,21 @@ namespace tatehama_bougo_client
                 bougoSignalRClient.OnError += OnSignalRError;
                 
                 System.Diagnostics.Debug.WriteLine("🔗 SignalRクライアント初期化完了");
+                
+                // 初期化直後に接続を開始（非同期）
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        System.Diagnostics.Debug.WriteLine("🔄 SignalR接続を開始します...");
+                        await bougoSignalRClient.ConnectAsync();
+                        System.Diagnostics.Debug.WriteLine("✅ SignalR接続完了");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"❌ SignalR接続開始エラー: {ex.Message}");
+                    }
+                });
             }
             catch (Exception ex)
             {
@@ -210,16 +233,24 @@ namespace tatehama_bougo_client
         /// </summary>
         private void OnBougoFiredReceived(string trainNumber, string zone)
         {
+            System.Diagnostics.Debug.WriteLine($"🚨 Form1: OnBougoFiredReceived 開始");
+            System.Diagnostics.Debug.WriteLine($"   InvokeRequired: {InvokeRequired}");
+            System.Diagnostics.Debug.WriteLine($"   パラメータ: trainNumber={trainNumber}, zone={zone}");
+            
             if (InvokeRequired)
             {
+                System.Diagnostics.Debug.WriteLine($"   UIスレッドへInvoke実行中...");
                 Invoke(new Action<string, string>(OnBougoFiredReceived), trainNumber, zone);
                 return;
             }
             
             System.Diagnostics.Debug.WriteLine($"🚨 他列車発報受信: {trainNumber} @ {zone}");
+            System.Diagnostics.Debug.WriteLine($"   PlayOtherTrainBougoSound() 実行中...");
             
             // 他列車の発砲時は音声を再生（bougoOther.wav があると仮定）
             PlayOtherTrainBougoSound();
+            
+            System.Diagnostics.Debug.WriteLine($"🚨 Form1: OnBougoFiredReceived 完了");
         }
         
         /// <summary>
@@ -227,16 +258,24 @@ namespace tatehama_bougo_client
         /// </summary>
         private void OnBougoStoppedReceived(string trainNumber, string zone)
         {
+            System.Diagnostics.Debug.WriteLine($"🔴 Form1: OnBougoStoppedReceived 開始");
+            System.Diagnostics.Debug.WriteLine($"   InvokeRequired: {InvokeRequired}");
+            System.Diagnostics.Debug.WriteLine($"   パラメータ: trainNumber={trainNumber}, zone={zone}");
+            
             if (InvokeRequired)
             {
+                System.Diagnostics.Debug.WriteLine($"   UIスレッドへInvoke実行中...");
                 Invoke(new Action<string, string>(OnBougoStoppedReceived), trainNumber, zone);
                 return;
             }
             
             System.Diagnostics.Debug.WriteLine($"🔴 他列車停止受信: {trainNumber} @ {zone}");
+            System.Diagnostics.Debug.WriteLine($"   StopOtherTrainBougoSound() 実行中...");
             
             // 他列車の停止通知処理（必要に応じて音声停止など）
             StopOtherTrainBougoSound();
+            
+            System.Diagnostics.Debug.WriteLine($"🔴 Form1: OnBougoStoppedReceived 完了");
         }
         
         /// <summary>
@@ -250,7 +289,11 @@ namespace tatehama_bougo_client
                 return;
             }
             
-            System.Diagnostics.Debug.WriteLine($"🔗 SignalR接続状態: {(isConnected ? "接続中" : "切断")}");
+            string status = isConnected ? "✅ 接続中" : "❌ 切断";
+            System.Diagnostics.Debug.WriteLine($"🔗 SignalR接続状態: {status}");
+            
+            // タイトルバーに接続状態を表示
+            this.Text = $"立濱防護無線クライアント - SignalR: {status}";
         }
         
         /// <summary>
@@ -272,6 +315,11 @@ namespace tatehama_bougo_client
         /// </summary>
         private void PlayOtherTrainBougoSound()
         {
+            System.Diagnostics.Debug.WriteLine($"🔊 PlayOtherTrainBougoSound 開始");
+            System.Diagnostics.Debug.WriteLine($"   isBougoOtherActive: {isBougoOtherActive}");
+            System.Diagnostics.Debug.WriteLine($"   isBougoActive: {isBougoActive}");
+            System.Diagnostics.Debug.WriteLine($"   bougoOtherAudio != null: {bougoOtherAudio != null}");
+            
             lock (audioLock)
             {
                 if (!isBougoOtherActive)
@@ -279,9 +327,19 @@ namespace tatehama_bougo_client
                     System.Diagnostics.Debug.WriteLine("🚨 他列車防護無線受報開始");
                     isBougoOtherActive = true;
                     
+                    // 受報開始時に即座にボタンを点灯（0.5秒待たずに即座に光らせる）
+                    bougoBlinkState = true; // 最初は点灯状態
+                    UpdateBougoDisplayWithBlink(); // 即座に表示更新
+                    System.Diagnostics.Debug.WriteLine("💡 受報開始時即座点灯");
+                    
+                    // 受報時の点滅タイマーを開始
+                    bougoBlinkTimer?.Start();
+                    System.Diagnostics.Debug.WriteLine("💡 受報点滅タイマー開始");
+                    
                     // 発砲中でない場合のみ受報音を再生（発砲優先）
                     if (!isBougoActive)
                     {
+                        System.Diagnostics.Debug.WriteLine($"   bougoOtherAudio.PlayLoop 実行中... (音量: {currentVolume})");
                         bougoOtherAudio?.PlayLoop(currentVolume);
                         System.Diagnostics.Debug.WriteLine($"🔊 他列車防護無線音声開始: 音量{(int)(currentVolume * 100)}%");
                     }
@@ -290,7 +348,12 @@ namespace tatehama_bougo_client
                         System.Diagnostics.Debug.WriteLine("⚠️ 発砲中のため受報音は待機中");
                     }
                 }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("⚠️ 既に受報状態です");
+                }
             }
+            System.Diagnostics.Debug.WriteLine($"🔊 PlayOtherTrainBougoSound 完了");
         }
         
         /// <summary>
@@ -305,9 +368,16 @@ namespace tatehama_bougo_client
                     System.Diagnostics.Debug.WriteLine("🔴 他列車防護無線受報停止");
                     isBougoOtherActive = false;
                     
+                    // 受報時の点滅タイマーを停止
+                    bougoBlinkTimer?.Stop();
+                    System.Diagnostics.Debug.WriteLine("💡 受報点滅タイマー停止");
+                    
                     // 他列車受報音を停止
                     bougoOtherAudio?.Stop();
                     System.Diagnostics.Debug.WriteLine("🔇 他列車防護無線音声停止");
+                    
+                    // ボタン表示を通常状態に戻す
+                    UpdateBougoDisplay();
                 }
             }
         }
@@ -319,34 +389,106 @@ namespace tatehama_bougo_client
         {
             try
             {
-                // 最新のTrainCrewデータから軌道回路情報を取得
-                if (currentTrainCrewData != null && trainCrewClient != null)
+                System.Diagnostics.Debug.WriteLine($"🗺️ GetCurrentZone開始");
+                
+                // 基本チェック
+                if (currentTrainCrewData == null)
                 {
-                    var myTrainCircuits = trainCrewClient.GetMyTrainTrackCircuits(currentTrainCrewData);
-                    var currentZones = new HashSet<string>();
+                    System.Diagnostics.Debug.WriteLine($"🗺️ currentTrainCrewData is null");
+                    return "データなし";
+                }
+                
+                if (currentTrainCrewData.myTrainData == null)
+                {
+                    System.Diagnostics.Debug.WriteLine($"🗺️ currentTrainCrewData.myTrainData is null");
+                    return "列車データなし";
+                }
+                
+                if (currentTrainCrewData.trackCircuitList == null)
+                {
+                    System.Diagnostics.Debug.WriteLine($"🗺️ currentTrainCrewData.trackCircuitList is null");
+                    return "軌道回路データなし";
+                }
+                
+                if (zoneMappings == null || zoneMappings.Count == 0)
+                {
+                    System.Diagnostics.Debug.WriteLine($"🗺️ zoneMappings is null or empty (Count: {zoneMappings?.Count ?? 0})");
+                    return "マッピングなし";
+                }
+                
+                string trainName = currentTrainCrewData.myTrainData.diaName;
+                if (string.IsNullOrEmpty(trainName))
+                {
+                    System.Diagnostics.Debug.WriteLine($"🗺️ 列車名が空またはnull");
+                    return "列車名なし";
+                }
+                
+                System.Diagnostics.Debug.WriteLine($"🗺️ 列車名: '{trainName}'");
+                System.Diagnostics.Debug.WriteLine($"🗺️ 軌道回路総数: {currentTrainCrewData.trackCircuitList.Count}");
+                System.Diagnostics.Debug.WriteLine($"🗺️ ゾーンマッピング総数: {zoneMappings.Count}");
+                
+                // 現在の自列車在線軌道回路を取得
+                var currentTrackCircuits = new List<string>();
+                var onTrackCircuits = currentTrainCrewData.trackCircuitList.Where(tc => tc.On).ToList();
+                
+                System.Diagnostics.Debug.WriteLine($"🗺️ 在線中軌道回路総数: {onTrackCircuits.Count}");
+                
+                foreach (var tc in onTrackCircuits)
+                {
+                    System.Diagnostics.Debug.WriteLine($"🗺️ 在線軌道回路: '{tc.Name}' - 最終列車: '{tc.Last}'");
                     
-                    // 有効な軌道回路からゾーンを抽出
-                    foreach (var circuitName in myTrainCircuits)
+                    if (tc.Last == trainName)
                     {
-                        string zone = trainCrewClient.GetZoneFromTrackCircuit(circuitName);
-                        if (zone != "不明")
-                        {
-                            currentZones.Add(zone);
-                        }
-                    }
-                    
-                    if (currentZones.Count > 0)
-                    {
-                        return string.Join(", ", currentZones.OrderBy(z => z));
+                        currentTrackCircuits.Add(tc.Name);
+                        System.Diagnostics.Debug.WriteLine($"🗺️ ✅ 自列車在線: '{tc.Name}'");
                     }
                 }
                 
-                return "未定義";
+                System.Diagnostics.Debug.WriteLine($"🗺️ 自列車在線軌道回路数: {currentTrackCircuits.Count}");
+                
+                // 対応するゾーンを収集
+                var currentZones = new HashSet<string>();
+                foreach (string circuitName in currentTrackCircuits)
+                {
+                    System.Diagnostics.Debug.WriteLine($"🗺️ 軌道回路ゾーンチェック: '{circuitName}'");
+                    
+                    if (zoneMappings.ContainsKey(circuitName))
+                    {
+                        string zone = zoneMappings[circuitName];
+                        currentZones.Add(zone);
+                        System.Diagnostics.Debug.WriteLine($"🗺️ ✅ {circuitName} -> '{zone}'");
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"🗺️ ❌ {circuitName} -> マッピング未定義");
+                        
+                        // 似た名前の軌道回路を探してヒントを提供
+                        var similarKeys = zoneMappings.Keys.Where(k => k.Contains(circuitName.Substring(0, Math.Min(4, circuitName.Length)))).Take(3).ToList();
+                        if (similarKeys.Any())
+                        {
+                            System.Diagnostics.Debug.WriteLine($"� 類似軌道回路: {string.Join(", ", similarKeys)}");
+                        }
+                    }
+                }
+                
+                if (currentZones.Count > 0)
+                {
+                    string result = string.Join(",", currentZones.OrderBy(z => z));
+                    System.Diagnostics.Debug.WriteLine($"🗺️ GetCurrentZone結果: '{result}'");
+                    return result;
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"🗺️ GetCurrentZone結果: ゾーン未検出");
+                    System.Diagnostics.Debug.WriteLine($"🗺️ 詳細: 在線軌道回路{currentTrackCircuits.Count}件、マッピング{zoneMappings.Count}件");
+                    return "未検出";
+                }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"❌ ゾーン取得エラー: {ex.Message}");
-                return "未定義";
+                System.Diagnostics.Debug.WriteLine($"❌ GetCurrentZone例外: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"❌ スタックトレース: {ex.StackTrace}");
+                return "エラー";
             }
         }
 
@@ -419,13 +561,29 @@ namespace tatehama_bougo_client
                     {
                         try
                         {
+                            System.Diagnostics.Debug.WriteLine($"📡 SignalR発砲通知準備開始");
+                            System.Diagnostics.Debug.WriteLine($"   現在時刻: {DateTime.Now:HH:mm:ss.fff}");
+                            System.Diagnostics.Debug.WriteLine($"   列車番号: '{currentTrainNumber}'");
+                            System.Diagnostics.Debug.WriteLine($"   SignalRクライアント状態: {bougoSignalRClient?.IsConnected}");
+                            
                             string currentZone = GetCurrentZone();
-                            await bougoSignalRClient?.FireBougoAsync(currentTrainNumber, currentZone);
-                            System.Diagnostics.Debug.WriteLine($"📡 SignalR発砲通知送信: {currentTrainNumber} @ {currentZone}");
+                            System.Diagnostics.Debug.WriteLine($"   取得ゾーン: '{currentZone}'");
+                            System.Diagnostics.Debug.WriteLine($"   ゾーン取得完了時刻: {DateTime.Now:HH:mm:ss.fff}");
+                            
+                            if (bougoSignalRClient?.IsConnected == true)
+                            {
+                                await bougoSignalRClient.FireBougoAsync(currentTrainNumber, currentZone);
+                                System.Diagnostics.Debug.WriteLine($"📡 ✅ SignalR発砲通知送信完了: '{currentTrainNumber}' @ '{currentZone}'");
+                            }
+                            else
+                            {
+                                System.Diagnostics.Debug.WriteLine($"📡 ❌ SignalR接続なし - 発砲通知送信スキップ");
+                            }
                         }
                         catch (Exception ex)
                         {
                             System.Diagnostics.Debug.WriteLine($"❌ SignalR発砲通知エラー: {ex.Message}");
+                            System.Diagnostics.Debug.WriteLine($"❌ スタックトレース: {ex.StackTrace}");
                         }
                     });
                 }
@@ -475,13 +633,29 @@ namespace tatehama_bougo_client
                     {
                         try
                         {
+                            System.Diagnostics.Debug.WriteLine($"📡 SignalR停止通知準備開始");
+                            System.Diagnostics.Debug.WriteLine($"   現在時刻: {DateTime.Now:HH:mm:ss.fff}");
+                            System.Diagnostics.Debug.WriteLine($"   列車番号: '{currentTrainNumber}'");
+                            System.Diagnostics.Debug.WriteLine($"   SignalRクライアント状態: {bougoSignalRClient?.IsConnected}");
+                            
                             string currentZone = GetCurrentZone();
-                            await bougoSignalRClient?.StopBougoAsync(currentTrainNumber, currentZone);
-                            System.Diagnostics.Debug.WriteLine($"📡 SignalR停止通知送信: {currentTrainNumber} @ {currentZone}");
+                            System.Diagnostics.Debug.WriteLine($"   取得ゾーン: '{currentZone}'");
+                            System.Diagnostics.Debug.WriteLine($"   ゾーン取得完了時刻: {DateTime.Now:HH:mm:ss.fff}");
+                            
+                            if (bougoSignalRClient?.IsConnected == true)
+                            {
+                                await bougoSignalRClient.StopBougoAsync(currentTrainNumber, currentZone);
+                                System.Diagnostics.Debug.WriteLine($"📡 ✅ SignalR停止通知送信完了: '{currentTrainNumber}' @ '{currentZone}'");
+                            }
+                            else
+                            {
+                                System.Diagnostics.Debug.WriteLine($"📡 ❌ SignalR接続なし - 停止通知送信スキップ");
+                            }
                         }
                         catch (Exception ex)
                         {
                             System.Diagnostics.Debug.WriteLine($"❌ SignalR停止通知エラー: {ex.Message}");
+                            System.Diagnostics.Debug.WriteLine($"❌ スタックトレース: {ex.StackTrace}");
                         }
                     });
                 }
@@ -502,24 +676,72 @@ namespace tatehama_bougo_client
             zoneMappings = new Dictionary<string, string>();
             try
             {
-                string csvPath = "ZoneMapping.csv";
-                if (File.Exists(csvPath))
+                System.Diagnostics.Debug.WriteLine($"�️ ゾーンマッピング初期化開始: {DateTime.Now:HH:mm:ss.fff}");
+                
+                // ハードコードでマッピングを初期化（文字化け問題を回避）
+                var mappingData = new Dictionary<string, string>
                 {
-                    var lines = File.ReadAllLines(csvPath);
-                    foreach (var line in lines.Skip(1)) // ヘッダーをスキップ
-                    {
-                        var parts = line.Split(',');
-                        if (parts.Length >= 2)
-                        {
-                            zoneMappings[parts[0].Trim()] = parts[1].Trim();
-                        }
-                    }
-                    System.Diagnostics.Debug.WriteLine($"ゾーンマッピング読み込み完了: {zoneMappings.Count}件");
+                    // ゾーン1
+                    {"TH75_1RET", "ゾーン1"},
+                    {"TH75_1RT", "ゾーン1"},
+                    {"TH75_34LT", "ゾーン1"},
+                    {"TH76_21上T", "ゾーン1"},
+                    {"TH76_21下T", "ゾーン1"},
+                    {"TH76_22T", "ゾーン1"},
+                    {"TH76_23T", "ゾーン1"},
+                    {"TH76_24T", "ゾーン1"},
+                    {"TH76_25T", "ゾーン1"},
+                    {"TH76_5LAT", "ゾーン1"},
+                    {"TH76_5LBT", "ゾーン1"},
+                    {"TH76_5LCT", "ゾーン1"},
+                    {"TH76_5LDT", "ゾーン1"},
+                    
+                    // ゾーン2
+                    {"TH74_21T", "ゾーン2"},
+                    {"TH74_22T", "ゾーン2"},
+                    {"TH74_23T", "ゾーン2"},
+                    
+                    // ゾーン3  
+                    {"TH70_1RAT", "ゾーン3"},
+                    {"TH70_21上T", "ゾーン3"},
+                    {"TH70_21下T", "ゾーン3"},
+                    {"TH70_2LT", "ゾーン3"},
+                    {"TH71_1RAT", "ゾーン3"},
+                    {"TH71_1RBT", "ゾーン3"},
+                    {"TH71_1RT", "ゾーン3"}
+                };
+                
+                // マッピングを設定
+                foreach (var mapping in mappingData)
+                {
+                    zoneMappings[mapping.Key] = mapping.Value;
                 }
+                
+                System.Diagnostics.Debug.WriteLine($"✅ ハードコードゾーンマッピング読み込み完了: {zoneMappings.Count}件");
+                
+                // TH76_5LDTの確認
+                if (zoneMappings.ContainsKey("TH76_5LDT"))
+                {
+                    System.Diagnostics.Debug.WriteLine($"🎯 TH76_5LDT確認: '{zoneMappings["TH76_5LDT"]}'");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"❌ TH76_5LDTが見つかりません");
+                }
+                
+                // 全てのマッピングを表示
+                System.Diagnostics.Debug.WriteLine($"📋 全ゾーンマッピング:");
+                foreach (var mapping in zoneMappings)
+                {
+                    System.Diagnostics.Debug.WriteLine($"  '{mapping.Key}' -> '{mapping.Value}'");
+                }
+                
+                System.Diagnostics.Debug.WriteLine($"🗺️ ゾーンマッピング初期化完了: {DateTime.Now:HH:mm:ss.fff}");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"ゾーンマッピング読み込みエラー: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"❌ ゾーンマッピング初期化エラー: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"❌ スタックトレース: {ex.StackTrace}");
             }
         }
 
@@ -554,6 +776,13 @@ namespace tatehama_bougo_client
             System.Diagnostics.Debug.WriteLine($"防護音F4: {bougoF4Path} - {System.IO.File.Exists(bougoF4Path)}");
             System.Diagnostics.Debug.WriteLine($"防護受報音: {bougoOtherPath} - {System.IO.File.Exists(bougoOtherPath)}");
             System.Diagnostics.Debug.WriteLine($"列車番号: {trainnumPath} - {System.IO.File.Exists(trainnumPath)}");
+            
+            // 音声オブジェクトの初期化状況を確認
+            System.Diagnostics.Debug.WriteLine("=== 音声オブジェクト初期化確認 ===");
+            System.Diagnostics.Debug.WriteLine($"bougomusenno != null: {bougomusenno != null}");
+            System.Diagnostics.Debug.WriteLine($"bougoF4Audio != null: {bougoF4Audio != null}");
+            System.Diagnostics.Debug.WriteLine($"bougoOtherAudio != null: {bougoOtherAudio != null}");
+            System.Diagnostics.Debug.WriteLine($"set_trainnum != null: {set_trainnum != null}");
             System.Diagnostics.Debug.WriteLine($"完了音: {completePath} - {System.IO.File.Exists(completePath)}");
             System.Diagnostics.Debug.WriteLine($"故障音: {kosyouPath} - {System.IO.File.Exists(kosyouPath)}");
             System.Diagnostics.Debug.WriteLine($"故障音声: {kosyouKoePath} - {System.IO.File.Exists(kosyouKoePath)}");
@@ -579,6 +808,11 @@ namespace tatehama_bougo_client
             ebBlinkTimer.Interval = 500; // 500ms間隔で点滅
             ebBlinkTimer.Tick += EBBlinkTimer_Tick;
 
+            // 受報時の防護無線ボタン点滅タイマーを初期化
+            bougoBlinkTimer = new System.Windows.Forms.Timer();
+            bougoBlinkTimer.Interval = 500; // 0.5秒間隔で点滅
+            bougoBlinkTimer.Tick += BougoBlinkTimer_Tick;
+
             // 故障コード表示タイマーを初期化
             failureCodeTimer = new System.Windows.Forms.Timer();
             failureCodeTimer.Interval = 2000; // 2秒間隔で切り替え
@@ -601,19 +835,6 @@ namespace tatehama_bougo_client
             {
                 System.Diagnostics.Debug.WriteLine($"TrainCrewクライアント初期化エラー: {ex.Message}");
             }
-            
-            // SignalRクライアントの接続を開始（非同期）
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await bougoSignalRClient.ConnectAsync();
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"SignalR接続開始エラー: {ex.Message}");
-                }
-            });
         }
 
         private async void StartSoundLoop()
@@ -631,8 +852,8 @@ namespace tatehama_bougo_client
             {
                 while (shouldPlayLoop)
                 {
-                    // 防護無線発砲中、受報中、またはEB開放中は通常ループを停止
-                    if (!shouldPlayLoop || isBougoActive || isBougoOtherActive || emergencyBrakeButtonState) break;
+                    // 防護無線発砲中またはEB開放中は通常ループを停止
+                    if (!shouldPlayLoop || isBougoActive || emergencyBrakeButtonState) break;
                     
                     // bougomusenno.wavを再生（通常時の防護無線アナウンス）
                     System.Diagnostics.Debug.WriteLine($"防護無線音声開始: {DateTime.Now:HH:mm:ss.fff}");
@@ -642,7 +863,7 @@ namespace tatehama_bougo_client
                     await Task.Delay(bougoDurationMs);
                     System.Diagnostics.Debug.WriteLine($"防護無線音声終了: {DateTime.Now:HH:mm:ss.fff}");
                     
-                    if (!shouldPlayLoop || isBougoActive || isBougoOtherActive || emergencyBrakeButtonState) break;
+                    if (!shouldPlayLoop || isBougoActive || emergencyBrakeButtonState) break;
                     
                     // set_trainnum.wavを再生
                     System.Diagnostics.Debug.WriteLine($"列車番号設定音声開始: {DateTime.Now:HH:mm:ss.fff}");
@@ -1237,9 +1458,6 @@ namespace tatehama_bougo_client
         {
             try
             {
-                // 最新のTrainCrewデータを保存
-                currentTrainCrewData = data;
-                
                 // 列車の走行状態を検知
                 bool wasMoving = isTrainMoving;
                 if (data.myTrainData != null)
@@ -1570,12 +1788,48 @@ namespace tatehama_bougo_client
         // 防護無線ボタンの表示を更新
         private void UpdateBougoDisplay()
         {
-            if (isBougoActive)
+            // 受報中の場合は点滅対応の更新を使用
+            if (isBougoOtherActive)
             {
-                bougo.Image = Image.FromFile(BougoOnImagePath);
+                UpdateBougoDisplayWithBlink();
             }
             else
             {
+                // 通常の表示更新
+                if (isBougoActive)
+                {
+                    bougo.Image = Image.FromFile(BougoOnImagePath);
+                }
+                else
+                {
+                    bougo.Image = Image.FromFile(BougoOffImagePath);
+                }
+            }
+        }
+
+        // 防護無線ボタンの表示を更新（点滅対応）
+        private void UpdateBougoDisplayWithBlink()
+        {
+            if (isBougoActive)
+            {
+                // 発報中は常にON表示
+                bougo.Image = Image.FromFile(BougoOnImagePath);
+            }
+            else if (isBougoOtherActive)
+            {
+                // 受報中は点滅
+                if (bougoBlinkState)
+                {
+                    bougo.Image = Image.FromFile(BougoOnImagePath);
+                }
+                else
+                {
+                    bougo.Image = Image.FromFile(BougoOffImagePath);
+                }
+            }
+            else
+            {
+                // 通常状態はOFF表示
                 bougo.Image = Image.FromFile(BougoOffImagePath);
             }
         }
@@ -1587,6 +1841,16 @@ namespace tatehama_bougo_client
             {
                 ebBlinkState = !ebBlinkState; // 点滅状態を反転
                 UpdateFailureLamp(); // 故障ランプ更新
+            }
+        }
+
+        // 受報時の防護無線ボタン点滅タイマーイベント
+        private void BougoBlinkTimer_Tick(object sender, EventArgs e)
+        {
+            if (isBougoOtherActive) // 受報中のみ動作
+            {
+                bougoBlinkState = !bougoBlinkState; // 点滅状態を反転
+                UpdateBougoDisplayWithBlink(); // 防護無線ボタン更新（点滅対応）
             }
         }
 

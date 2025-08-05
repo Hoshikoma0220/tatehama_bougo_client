@@ -1,0 +1,13 @@
+D:\tatehama\NEW\tatehama_bougo_client\EmergencyBrakeController.cs(15,28): warning CS8632: '#nullable' 注釈コンテキスト内のコードでのみ、Null 許容参照型の注釈を使用する必要があります。 [D:\tatehama\NEW\tatehama_bougo_client\tatehama_bougo_client.csproj]
+D:\tatehama\NEW\tatehama_bougo_client\EmergencyBrakeController.cs(16,34): warning CS8632: '#nullable' 注釈コンテキスト内のコードでのみ、Null 許容参照型の注釈を使用する必要があります。 [D:\tatehama\NEW\tatehama_bougo_client\tatehama_bougo_client.csproj]
+D:\tatehama\NEW\tatehama_bougo_client\EmergencyBrakeController.cs(17,34): warning CS8632: '#nullable' 注釈コンテキスト内のコードでのみ、Null 許容参照型の注釈を使用する必要があります。 [D:\tatehama\NEW\tatehama_bougo_client\tatehama_bougo_client.csproj]
+D:\tatehama\NEW\tatehama_bougo_client\EmergencyBrakeController.cs(19,47): warning CS8632: '#nullable' 注釈コンテキスト内のコードでのみ、Null 許容参照型の注釈を使用する必要があります。 [D:\tatehama\NEW\tatehama_bougo_client\tatehama_bougo_client.csproj]
+D:\tatehama\NEW\tatehama_bougo_client\ATOTestForm.cs(30,45): warning CS8632: '#nullable' 注釈コンテキスト内のコードでのみ、Null 許容参照型の注釈を使用する必要があります。 [D:\tatehama\NEW\tatehama_bougo_client\tatehama_bougo_client.csproj]
+D:\tatehama\NEW\tatehama_bougo_client\ATOTestForm.cs(9,21): warning CS8632: '#nullable' 注釈コンテキスト内のコードでのみ、Null 許容参照型の注釈を使用する必要があります。 [D:\tatehama\NEW\tatehama_bougo_client\tatehama_bougo_client.csproj]
+D:\tatehama\NEW\tatehama_bougo_client\ATOTestForm.cs(10,27): warning CS8632: '#nullable' 注釈コンテキスト内のコードでのみ、Null 許容参照型の注釈を使用する必要があります。 [D:\tatehama\NEW\tatehama_bougo_client\tatehama_bougo_client.csproj]
+D:\tatehama\NEW\tatehama_bougo_client\ATOTestForm.cs(11,27): warning CS8632: '#nullable' 注釈コンテキスト内のコードでのみ、Null 許容参照型の注釈を使用する必要があります。 [D:\tatehama\NEW\tatehama_bougo_client\tatehama_bougo_client.csproj]
+D:\tatehama\NEW\tatehama_bougo_client\RetsubanWindow\RetsubanWindow.cs(41,30): warning CS0169: フィールド 'RetsubanWindow.mainForm' は使用されていません [D:\tatehama\NEW\tatehama_bougo_client\tatehama_bougo_client.csproj]
+D:\tatehama\NEW\tatehama_bougo_client\RetsubanWindow\RetsubanLogic.cs(37,39): warning CS0067: イベント 'RetsubanLogic.SetCarAction' は使用されていません [D:\tatehama\NEW\tatehama_bougo_client\tatehama_bougo_client.csproj]
+D:\tatehama\NEW\tatehama_bougo_client\RetsubanWindow\TimeLogic.cs(23,21): warning CS0649: フィールド 'TimeLogic.nowSetting' は割り当てられません。常に既定値 false を使用します [D:\tatehama\NEW\tatehama_bougo_client\tatehama_bougo_client.csproj]
+D:\tatehama\NEW\tatehama_bougo_client\Form1.cs(97,22): warning CS0414: フィールド 'Form1.isDotAnimationActive' が割り当てられていますが、値は使用されていません [D:\tatehama\NEW\tatehama_bougo_client\tatehama_bougo_client.csproj]
+^C

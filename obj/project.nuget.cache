@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "GX789s0ngVo=",
+  "dgSpecHash": "OSJH5N6Hy58=",
   "success": true,
-  "projectFilePath": "d:\\tatehama\\NEW\\tatehama_bougo_client\\tatehama_bougo_client.csproj",
+  "projectFilePath": "D:\\tatehama\\NEW\\tatehama_bougo_client\\tatehama_bougo_client.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\yuma1\\.nuget\\packages\\microsoft.aspnetcore.connections.abstractions\\8.0.0\\microsoft.aspnetcore.connections.abstractions.8.0.0.nupkg.sha512",
     "C:\\Users\\yuma1\\.nuget\\packages\\microsoft.aspnetcore.http.connections.client\\8.0.0\\microsoft.aspnetcore.http.connections.client.8.0.0.nupkg.sha512",
