@@ -1,4 +1,7 @@
 using Microsoft.AspNetCore.SignalR.Client;
+
+
+
 using System;
 using System.Threading.Tasks;
 
@@ -451,6 +454,49 @@ namespace tatehama_bougo_client
             };
             
             System.Diagnostics.Debug.WriteLine("✅ SignalRイベントハンドラー設定完了");
+        }
+
+        /// <summary>
+        /// クライアントの位置情報をサーバーに送信
+        /// </summary>
+        /// <param name="zone">現在のゾーン</param>
+        public async Task UpdateLocationAsync(string zone)
+        {
+            if (_connection?.State == HubConnectionState.Connected)
+            {
+                try
+                {
+                    System.Diagnostics.Debug.WriteLine($"📍 位置情報送信: ゾーン={zone}");
+                    await _connection.InvokeAsync("UpdateClientLocation", zone);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"❌ 位置情報送信エラー: {ex.Message}");
+                    OnError?.Invoke($"位置情報送信エラー: {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// 軌道回路データをサーバーに送信（2重化のため）
+        /// </summary>
+        /// <param name="trainNumber">列車番号</param>
+        /// <param name="trackCircuits">在線軌道回路リスト</param>
+        public async Task SendTrackCircuitDataAsync(string trainNumber, string[] trackCircuits)
+        {
+            if (_connection?.State == HubConnectionState.Connected)
+            {
+                try
+                {
+                    System.Diagnostics.Debug.WriteLine($"📡 軌道回路データ送信: 列車={trainNumber}, 軌道回路数={trackCircuits.Length}");
+                    await _connection.InvokeAsync("UpdateClientTrackCircuits", trainNumber, trackCircuits);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"❌ 軌道回路データ送信エラー: {ex.Message}");
+                    OnError?.Invoke($"軌道回路データ送信エラー: {ex.Message}");
+                }
+            }
         }
     }
 }

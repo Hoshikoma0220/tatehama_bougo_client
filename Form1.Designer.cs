@@ -152,7 +152,9 @@ partial class Form1
         Controls.Add(power);
         ForeColor = Color.Transparent;
         Name = "Form1";
-        Text = "Form1";
+        Text = "立浜防護無線システム";
+        AutoScaleMode = AutoScaleMode.Dpi;
+        StartPosition = FormStartPosition.CenterScreen;
         ((System.ComponentModel.ISupportInitialize)power).EndInit();
         ((System.ComponentModel.ISupportInitialize)fail).EndInit();
         ((System.ComponentModel.ISupportInitialize)retuban).EndInit();

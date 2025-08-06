@@ -124,8 +124,8 @@ namespace tatehama_bougo_client
                             isCurrentlyBraking = true;
                             Debug.WriteLine("🚨 EmergencyBrakeController: 非常ブレーキ作動（現実的フロー判定）");
                         }
-                        // EB中は50msごとに連続送信
-                        await Task.Delay(50, controlLoopCancellationToken.Token);
+                        // EB中は20msごとに連続送信（応答性向上）
+                        await Task.Delay(20, controlLoopCancellationToken.Token);
                     }
                     else
                     {
@@ -136,8 +136,8 @@ namespace tatehama_bougo_client
                             isCurrentlyBraking = false;
                             Debug.WriteLine("✅ EmergencyBrakeController: 非常ブレーキ解除（現実的フロー判定）");
                         }
-                        // 正常時は500msごとに監視
-                        await Task.Delay(500, controlLoopCancellationToken.Token);
+                        // 正常時は100msごとに監視（応答性向上）
+                        await Task.Delay(100, controlLoopCancellationToken.Token);
                     }
                 }
             }
