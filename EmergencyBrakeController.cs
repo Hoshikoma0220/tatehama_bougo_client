@@ -82,6 +82,12 @@ namespace tatehama_bougo_client
                 return false;
             }
             
+            // EB一時無効化フラグが有効な場合は無条件でブレーキ解除
+            if (Form1.IsEBTemporarilyDisabled)
+            {
+                return false;
+            }
+            
             // 列番未設定の場合は非常ブレーキ
             if (!isTrainNumberSet)
             {

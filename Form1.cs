@@ -7,11 +7,13 @@ using System.Media;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using TakumiteAudioWrapper;
 using TatehamaATS_v1.RetsubanWindow;
 using TrainCrewAPI;
+using tatehama_bougo_client.API;
 
 namespace tatehama_bougo_client
 {
@@ -82,9 +84,23 @@ namespace tatehama_bougo_client
         // SignalR防護無線通信関連
         private BougoSignalRClient bougoSignalRClient;
         private string lastSentZone = ""; // 最後に送信したゾーン情報
+        
+        // ゾーン移動検知・自動再発報関連
+        private string previousZone = ""; // 前回のゾーン（移動検知用）
+        private string lastValidZone = ""; // 最後に有効だったゾーン（軌道回路なしの場合の保持用）
+        private DateTime lastZoneCheckTime = DateTime.Now; // 最後のゾーンチェック時刻
+        private System.Windows.Forms.Timer zoneCheckTimer; // ゾーン変化監視タイマー
+        private readonly object zoneMovementLock = new object(); // ゾーン移動処理の排他制御
 
         // 非常ブレーキ関連
         private bool emergencyBrakeButtonState = false; // false: 作動状態(非常ブレーキ有効), true: 開放状態(非常ブレーキ無効)
+        private bool isEBTemporarilyDisabled = true; // EB一時無効化フラグ（初期状態は無効）
+        
+        /// <summary>
+        /// EB一時無効化フラグへのパブリックアクセス
+        /// </summary>
+        public static bool IsEBTemporarilyDisabled { get; set; } = true;
+        
         private System.Windows.Forms.Timer ebBlinkTimer; // EB開放中の故障ランプ点滅タイマー
         private bool ebBlinkState = false; // EB開放中の故障ランプ点滅状態
         private string currentTrainNumber = "--"; // 列番入力画面で設定された列車番号
@@ -122,6 +138,11 @@ namespace tatehama_bougo_client
             // EB開放オーバーライドを確実に無効化（初期状態）
             EmergencyBrakeController.SetEbReleaseOverride(false);
             
+            // ゾーン移動監視タイマーを初期化（2秒間隔でチェック）
+            zoneCheckTimer = new System.Windows.Forms.Timer();
+            zoneCheckTimer.Interval = 2000; // 2秒間隔
+            zoneCheckTimer.Tick += ZoneCheckTimer_Tick;
+            
             // SignalRクライアント初期化
             InitializeSignalRClient();
             
@@ -148,6 +169,10 @@ namespace tatehama_bougo_client
             // ドットアニメーションタイマーを停止
             dotAnimationTimer?.Stop();
             dotAnimationTimer?.Dispose();
+            
+            // ゾーン移動監視タイマーを停止
+            zoneCheckTimer?.Stop();
+            zoneCheckTimer?.Dispose();
             
             // アプリケーション終了時に非常ブレーキを確実に解除
             EmergencyBrakeController.OnApplicationExit();
@@ -541,6 +566,9 @@ namespace tatehama_bougo_client
                     string result = string.Join(",", currentZones.OrderBy(z => z));
                     System.Diagnostics.Debug.WriteLine($"🗺️ GetCurrentZone結果: '{result}'");
                     
+                    // 有効なゾーンが見つかった場合は最後の有効ゾーンとして保存
+                    lastValidZone = result;
+                    
                     // デバッグ表示を更新
                     UpdateDebugDisplay(currentTrackCircuits, result);
                     
@@ -550,6 +578,17 @@ namespace tatehama_bougo_client
                 {
                     System.Diagnostics.Debug.WriteLine($"🗺️ GetCurrentZone結果: ゾーン未検出");
                     System.Diagnostics.Debug.WriteLine($"🗺️ 詳細: 在線軌道回路{currentTrackCircuits.Count}件、マッピング{zoneMappings.Count}件");
+                    
+                    // 軌道回路なしの場合、直前の有効ゾーンを返す
+                    if (!string.IsNullOrEmpty(lastValidZone))
+                    {
+                        System.Diagnostics.Debug.WriteLine($"🗺️ 軌道回路なし - 直前の有効ゾーンを使用: '{lastValidZone}'");
+                        
+                        // デバッグ表示を更新
+                        UpdateDebugDisplay(currentTrackCircuits, $"未検出(直前: {lastValidZone})");
+                        
+                        return lastValidZone;
+                    }
                     
                     // デバッグ表示を更新
                     UpdateDebugDisplay(currentTrackCircuits, "未検出");
@@ -654,6 +693,14 @@ namespace tatehama_bougo_client
                             System.Diagnostics.Debug.WriteLine($"   列車番号: '{currentTrainNumber}'");
                             System.Diagnostics.Debug.WriteLine($"   SignalRクライアント状態: {bougoSignalRClient?.IsConnected}");
                             
+                            // デバッグ用: 列車番号がデフォルト値の場合はテスト値を使用
+                            string testTrainNumber = currentTrainNumber;
+                            if (string.IsNullOrEmpty(currentTrainNumber) || currentTrainNumber == "--" || currentTrainNumber == "0000")
+                            {
+                                testTrainNumber = "TEST001";
+                                System.Diagnostics.Debug.WriteLine($"   ⚠️ デバッグ用テスト列車番号使用: '{testTrainNumber}'");
+                            }
+                            
                             string currentZone = GetCurrentZone();
                             System.Diagnostics.Debug.WriteLine($"   取得ゾーン: '{currentZone}'");
                             System.Diagnostics.Debug.WriteLine($"   ゾーン取得完了時刻: {DateTime.Now:HH:mm:ss.fff}");
@@ -674,8 +721,24 @@ namespace tatehama_bougo_client
                             
                             if (bougoSignalRClient?.IsConnected == true)
                             {
-                                await bougoSignalRClient.FireBougoAsync(currentTrainNumber, currentZone);
-                                System.Diagnostics.Debug.WriteLine($"📡 ✅ SignalR発砲通知送信完了: '{currentTrainNumber}' @ '{currentZone}'");
+                                // 複数ゾーンの場合は各ゾーンで発報
+                                var currentZones = currentZone.Split(',').Select(z => z.Trim()).ToList();
+                                foreach (var zone in currentZones)
+                                {
+                                    await bougoSignalRClient.FireBougoAsync(testTrainNumber, zone);
+                                    System.Diagnostics.Debug.WriteLine($"📡 ✅ SignalR発砲通知送信完了: '{testTrainNumber}' @ '{zone}'");
+                                    
+                                    // 複数ゾーンの場合は少し間隔を空ける
+                                    if (currentZones.Count > 1)
+                                    {
+                                        await Task.Delay(200);
+                                    }
+                                }
+                                
+                                // 初回発報時にゾーン監視を開始
+                                previousZone = currentZone;
+                                lastZoneCheckTime = DateTime.Now;
+                                System.Diagnostics.Debug.WriteLine($"🔍 ゾーン監視開始: {currentZone}");
                             }
                             else
                             {
@@ -737,6 +800,14 @@ namespace tatehama_bougo_client
                             System.Diagnostics.Debug.WriteLine($"   列車番号: '{currentTrainNumber}'");
                             System.Diagnostics.Debug.WriteLine($"   SignalRクライアント状態: {bougoSignalRClient?.IsConnected}");
                             
+                            // デバッグ用: 列車番号がデフォルト値の場合はテスト値を使用
+                            string testTrainNumber = currentTrainNumber;
+                            if (string.IsNullOrEmpty(currentTrainNumber) || currentTrainNumber == "--" || currentTrainNumber == "0000")
+                            {
+                                testTrainNumber = "TEST001";
+                                System.Diagnostics.Debug.WriteLine($"   ⚠️ デバッグ用テスト列車番号使用: '{testTrainNumber}'");
+                            }
+                            
                             string currentZone = GetCurrentZone();
                             System.Diagnostics.Debug.WriteLine($"   取得ゾーン: '{currentZone}'");
                             System.Diagnostics.Debug.WriteLine($"   ゾーン取得完了時刻: {DateTime.Now:HH:mm:ss.fff}");
@@ -757,8 +828,27 @@ namespace tatehama_bougo_client
                             
                             if (bougoSignalRClient?.IsConnected == true)
                             {
-                                await bougoSignalRClient.StopBougoAsync(currentTrainNumber, currentZone);
-                                System.Diagnostics.Debug.WriteLine($"📡 ✅ SignalR停止通知送信完了: '{currentTrainNumber}' @ '{currentZone}'");
+                                // 停止時は直前のゾーン（previousZone）を使用して各ゾーンで停止
+                                string zoneToStop = !string.IsNullOrEmpty(previousZone) ? previousZone : currentZone;
+                                var zonesToStop = zoneToStop.Split(',').Select(z => z.Trim()).ToList();
+                                
+                                foreach (var zone in zonesToStop)
+                                {
+                                    await bougoSignalRClient.StopBougoAsync(testTrainNumber, zone);
+                                    System.Diagnostics.Debug.WriteLine($"📡 ✅ SignalR停止通知送信完了: '{testTrainNumber}' @ '{zone}'");
+                                    
+                                    // 複数ゾーンの場合は少し間隔を空ける
+                                    if (zonesToStop.Count > 1)
+                                    {
+                                        await Task.Delay(200);
+                                    }
+                                }
+                                
+                                // 防護無線停止時にゾーン監視をリセット
+                                previousZone = null;
+                                lastValidZone = ""; // 最後の有効ゾーンもリセット
+                                lastZoneCheckTime = DateTime.MinValue;
+                                System.Diagnostics.Debug.WriteLine($"🔍 ゾーン監視停止");
                             }
                             else
                             {
@@ -786,98 +876,288 @@ namespace tatehama_bougo_client
 
         private void LoadZoneMappings()
         {
-            zoneMappings = new Dictionary<string, string>();
-            try
+            System.Diagnostics.Debug.WriteLine($"🗺️ ハードコードゾーンマッピング初期化開始: {DateTime.Now:HH:mm:ss.fff}");
+            
+            // JSONファイルの内容を直接ハードコーディング（214件の完全なマッピング）
+            zoneMappings = new Dictionary<string, string>
             {
-                System.Diagnostics.Debug.WriteLine($"�️ ゾーンマッピング初期化開始: {DateTime.Now:HH:mm:ss.fff}");
+                // ゾーン1（47件）
+                {"TH75_1RET", "ゾーン1"},
+                {"TH75_1RT", "ゾーン1"},
+                {"TH75_34LT", "ゾーン1"},
+                {"TH75_41イT", "ゾーン1"},
+                {"TH75_41ロT", "ゾーン1"},
+                {"TH75_42イT", "ゾーン1"},
+                {"TH75_42ロT", "ゾーン1"},
+                {"TH75_43イT", "ゾーン1"},
+                {"TH75_43ロT", "ゾーン1"},
+                {"TH75_44T", "ゾーン1"},
+                {"TH75_45T", "ゾーン1"},
+                {"TH75_46イT", "ゾーン1"},
+                {"TH75_46ロT", "ゾーン1"},
+                {"TH75_48T", "ゾーン1"},
+                {"TH75_49イT", "ゾーン1"},
+                {"TH75_49ロT", "ゾーン1"},
+                {"TH75_4T", "ゾーン1"},
+                {"TH75_50イT", "ゾーン1"},
+                {"TH75_50ロT", "ゾーン1"},
+                {"TH75_5RAT", "ゾーン1"},
+                {"TH75_5RBT", "ゾーン1"},
+                {"TH75_5T", "ゾーン1"},
+                {"TH75_6LT", "ゾーン1"},
+                {"TH75_6T", "ゾーン1"},
+                {"TH75_7T", "ゾーン1"},
+                {"TH75_8T", "ゾーン1"},
+                {"TH75_9LCT", "ゾーン1"},
+                {"TH75_9LT", "ゾーン1"},
+                {"TH75_9T", "ゾーン1"},
+                {"TH75_SST", "ゾーン1"},
+                {"TH75_TST", "ゾーン1"},
+                {"TH76_21イT", "ゾーン1"},
+                {"TH76_21ロT", "ゾーン1"},
+                {"TH76_22T", "ゾーン1"},
+                {"TH76_23T", "ゾーン1"},
+                {"TH76_24T", "ゾーン1"},
+                {"TH76_25T", "ゾーン1"},
+                {"TH76_26イT", "ゾーン1"},
+                {"TH76_26ロT", "ゾーン1"},
+                {"TH76_27T", "ゾーン1"},
+                {"TH76_5LAT", "ゾーン1"},
+                {"TH76_5LBT", "ゾーン1"},
+                {"TH76_5LCT", "ゾーン1"},
+                {"TH76_5LDT", "ゾーン1"},
+                {"上り6T", "ゾーン1"},
+                {"上り8T", "ゾーン1"},
+                {"下り7T", "ゾーン1"},
+                {"下り9T", "ゾーン1"},
                 
-                // JSONファイルからマッピングを読み込み
-                string jsonPath = Path.Combine(Application.StartupPath, "ZoneMapping.json");
-                System.Diagnostics.Debug.WriteLine($"🗂️ JSONファイルパス: {jsonPath}");
+                // ゾーン2（16件）
+                {"下り27T", "ゾーン2"},
+                {"下り35T", "ゾーン2"},
+                {"下り41T", "ゾーン2"},
+                {"下り45T", "ゾーン2"},
+                {"下り49T", "ゾーン2"},
+                {"下り55T", "ゾーン2"},
+                {"下り59T", "ゾーン2"},
+                {"下り67T", "ゾーン2"},
+                {"下り71T", "ゾーン2"},
+                {"上り26T", "ゾーン2"},
+                {"上り30T", "ゾーン2"},
+                {"上り36T", "ゾーン2"},
+                {"上り42T", "ゾーン2"},
+                {"上り48T", "ゾーン2"},
+                {"上り56T", "ゾーン2"},
+                {"上り62T", "ゾーン2"},
                 
-                if (File.Exists(jsonPath))
+                // ゾーン3（20件）
+                {"下り75T", "ゾーン3"},
+                {"下り89T", "ゾーン3"},
+                {"TH70_1RAT", "ゾーン3"},
+                {"TH70_21イT", "ゾーン3"},
+                {"TH70_21ロT", "ゾーン3"},
+                {"TH70_2LT", "ゾーン3"},
+                {"TH70_5LBT", "ゾーン3"},
+                {"TH70_5LT", "ゾーン3"},
+                {"TH70_SST", "ゾーン3"},
+                {"TH71_1RAT", "ゾーン3"},
+                {"TH71_1RBT", "ゾーン3"},
+                {"TH71_1RT", "ゾーン3"},
+                {"TH71_21T", "ゾーン3"},
+                {"TH71_22T", "ゾーン3"},
+                {"TH71_23T", "ゾーン3"},
+                {"TH71_24T", "ゾーン3"},
+                {"TH71_6LCT", "ゾーン3"},
+                {"TH71_6LDT", "ゾーン3"},
+                {"TH71_6LT", "ゾーン3"},
+                {"TH71_SST", "ゾーン3"},
+                {"TH71_TST", "ゾーン3"},
+                {"上り68T", "ゾーン3"},
+                {"上り74T", "ゾーン3"},
+                {"上り86T", "ゾーン3"},
+                {"上り92T", "ゾーン3"},
+                
+                // ゾーン4（9件）
+                {"下り103T", "ゾーン4"},
+                {"下り105T", "ゾーン4"},
+                {"下り111T", "ゾーン4"},
+                {"下り117T", "ゾーン4"},
+                {"下り123T", "ゾーン4"},
+                {"上り102T", "ゾーン4"},
+                {"上り108T", "ゾーン4"},
+                {"上り114T", "ゾーン4"},
+                {"上り120T", "ゾーン4"},
+                
+                // ゾーン5（19件）
+                {"下り137T", "ゾーン5"},
+                {"下り143T", "ゾーン5"},
+                {"下り145T", "ゾーン5"},
+                {"TH67_10LT", "ゾーン5"},
+                {"TH67_1RAT", "ゾーン5"},
+                {"TH67_1RBT", "ゾーン5"},
+                {"TH67_1RT", "ゾーン5"},
+                {"TH67_23RT", "ゾーン5"},
+                {"TH67_31T", "ゾーン5"},
+                {"TH67_32T", "ゾーン5"},
+                {"TH67_33イT", "ゾーン5"},
+                {"TH67_33ロT", "ゾーン5"},
+                {"TH67_34T", "ゾーン5"},
+                {"TH67_35イT", "ゾーン5"},
+                {"TH67_35ロT", "ゾーン5"},
+                {"TH67_36イT", "ゾーン5"},
+                {"TH67_36ロT", "ゾーン5"},
+                {"TH67_4LT", "ゾーン5"},
+                {"TH67_5LT", "ゾーン5"},
+                {"TH67_SST", "ゾーン5"},
+                {"TH67_TST", "ゾーン5"},
+                {"上り124T", "ゾーン5"},
+                {"上り136T", "ゾーン5"},
+                {"上り142T", "ゾーン5"},
+                
+                // ゾーン6（34件）
+                {"下り151T", "ゾーン6"},
+                {"TH65_11LT", "ゾーン6"},
+                {"TH65_12LT", "ゾーン6"},
+                {"TH65_1RT", "ゾーン6"},
+                {"TH65_2RT", "ゾーン6"},
+                {"TH65_3RT", "ゾーン6"},
+                {"TH65_41T", "ゾーン6"},
+                {"TH65_42イT", "ゾーン6"},
+                {"TH65_42ロT", "ゾーン6"},
+                {"TH65_44T", "ゾーン6"},
+                {"TH65_45T", "ゾーン6"},
+                {"TH65_47T", "ゾーン6"},
+                {"TH65_48T", "ゾーン6"},
+                {"TH65_49T", "ゾーン6"},
+                {"TH65_50イT", "ゾーン6"},
+                {"TH65_50ロT", "ゾーン6"},
+                {"TH65_5T", "ゾーン6"},
+                {"TH65_6T", "ゾーン6"},
+                {"TH65_ET", "ゾーン6"},
+                {"TH65_TST", "ゾーン6"},
+                {"TH65_XT", "ゾーン6"},
+                {"TH65_YT", "ゾーン6"},
+                {"TH66S_13T", "ゾーン6"},
+                {"TH66S_1RAT", "ゾーン6"},
+                {"TH66S_1RBT", "ゾーン6"},
+                {"TH66S_1RCT", "ゾーン6"},
+                {"TH66S_1RT", "ゾーン6"},
+                {"TH66S_51イT", "ゾーン6"},
+                {"TH66S_51ロT", "ゾーン6"},
+                {"TH66S_52T", "ゾーン6"},
+                {"TH66S_53T", "ゾーン6"},
+                {"TH66S_54T", "ゾーン6"},
+                {"TH66S_55T", "ゾーン6"},
+                {"TH66S_56T", "ゾーン6"},
+                {"TH66S_57T", "ゾーン6"},
+                {"TH66S_5LDT", "ゾーン6"},
+                {"TH66S_5LET", "ゾーン6"},
+                {"TH66S_5LT", "ゾーン6"},
+                {"上り146T", "ゾーン6"},
+                {"上り156T", "ゾーン6"},
+                
+                // ゾーン7（10件）
+                {"DF1T", "ゾーン7"},
+                {"DF2T", "ゾーン7"},
+                {"TH64_12LT", "ゾーン7"},
+                {"TH64_12RT", "ゾーン7"},
+                {"TH64_13LT", "ゾーン7"},
+                {"TH64_14RT", "ゾーン7"},
+                {"TH64_15LT", "ゾーン7"},
+                {"TH64_15RT", "ゾーン7"},
+                {"TH64_21T", "ゾーン7"},
+                {"TH64_22T", "ゾーン7"},
+                
+                // ゾーン8（9件）
+                {"FMT", "ゾーン8"},
+                {"MT1T", "ゾーン8"},
+                {"MT2T", "ゾーン8"},
+                {"TH63_12RT", "ゾーン8"},
+                {"TH63_15LT", "ゾーン8"},
+                {"TH63_21イT", "ゾーン8"},
+                {"TH63_21ロT", "ゾーン8"},
+                {"TH63_22イT", "ゾーン8"},
+                {"TH63_22ロT", "ゾーン8"},
+                
+                // ゾーン9（18件）
+                {"TH1T", "ゾーン9"},
+                {"TH2T", "ゾーン9"},
+                {"TH61_21イT", "ゾーン9"},
+                {"TH61_21ロT", "ゾーン9"},
+                {"TH61_22T", "ゾーン9"},
+                {"TH61_2RAT", "ゾーン9"},
+                {"TH61_2RBT", "ゾーン9"},
+                {"TH61_2RT", "ゾーン9"},
+                {"TH61_5RT", "ゾーン9"},
+                {"TH61_6LT", "ゾーン9"},
+                {"TH62_12LT", "ゾーン9"},
+                {"TH62_12RT", "ゾーン9"},
+                {"TH62_13LT", "ゾーン9"},
+                {"TH62_14RT", "ゾーン9"},
+                {"TH62_15LT", "ゾーン9"},
+                {"TH62_15RT", "ゾーン9"},
+                {"TH62_21T", "ゾーン9"},
+                {"TH62_22T", "ゾーン9"},
+                
+                // ゾーン10（14件）
+                {"下り237T", "ゾーン10"},
+                {"下り241T", "ゾーン10"},
+                {"下り245T", "ゾーン10"},
+                {"下り249T", "ゾーン10"},
+                {"TH59_11RT", "ゾーン10"},
+                {"TH59_12LT", "ゾーン10"},
+                {"TH59_13LT", "ゾーン10"},
+                {"TH59_21イT", "ゾーン10"},
+                {"TH59_21ロT", "ゾーン10"},
+                {"上り238T", "ゾーン10"},
+                {"上り242T", "ゾーン10"},
+                {"上り246T", "ゾーン10"},
+                {"上り250T", "ゾーン10"},
+                
+                // ゾーン11（16件）
+                {"NA1T", "ゾーン11"},
+                {"NA2T", "ゾーン11"},
+                {"TH58_21T", "ゾーン11"},
+                {"TH58_22イT", "ゾーン11"},
+                {"TH58_22ロT", "ゾーン11"},
+                {"TH58_23イT", "ゾーン11"},
+                {"TH58_23ロT", "ゾーン11"},
+                {"TH58_24T", "ゾーン11"},
+                {"TH58_25T", "ゾーン11"},
+                {"TH58_2RAT", "ゾーン11"},
+                {"TH58_2RBT", "ゾーン11"},
+                {"TH58_2RT", "ゾーン11"},
+                {"TH58_9LCT", "ゾーン11"},
+                {"TH58_9LT", "ゾーン11"},
+                {"TH58_DT", "ゾーン11"},
+                {"TH58_ET", "ゾーン11"}
+            };
+            
+            System.Diagnostics.Debug.WriteLine($"✅ ハードコードゾーンマッピング初期化完了: {zoneMappings.Count}件");
+            System.Diagnostics.Debug.WriteLine($"🗺️ 各ゾーンの軌道回路数:");
+            
+            // ゾーン別の統計を表示
+            for (int zone = 1; zone <= 11; zone++)
+            {
+                var zoneKey = $"ゾーン{zone}";
+                var count = zoneMappings.Values.Count(v => v == zoneKey);
+                System.Diagnostics.Debug.WriteLine($"   {zoneKey}: {count}件");
+            }
+            
+            // 重要な軌道回路の確認
+            var importantCircuits = new[] { "TH58_9LCT", "TH76_5LDT", "下り27T", "上り26T", "上り108T" };
+            foreach (var circuit in importantCircuits)
+            {
+                if (zoneMappings.ContainsKey(circuit))
                 {
-                    string jsonContent = File.ReadAllText(jsonPath, Encoding.UTF8);
-                    System.Diagnostics.Debug.WriteLine($"📄 JSONファイル読み込み: {jsonContent.Length}文字");
-                    
-                    using (JsonDocument document = JsonDocument.Parse(jsonContent))
-                    {
-                        var root = document.RootElement;
-                        
-                        if (root.TryGetProperty("zoneMappings", out JsonElement mappingsElement))
-                        {
-                            int loadedCount = 0;
-                            
-                            foreach (JsonProperty mapping in mappingsElement.EnumerateObject())
-                            {
-                                string trackCircuit = mapping.Name;
-                                string zone = mapping.Value.GetString() ?? "";
-                                
-                                if (!string.IsNullOrEmpty(trackCircuit) && !string.IsNullOrEmpty(zone))
-                                {
-                                    zoneMappings[trackCircuit] = zone;
-                                    loadedCount++;
-                                    
-                                    if (loadedCount <= 5) // 最初の5件をログ出力
-                                    {
-                                        System.Diagnostics.Debug.WriteLine($"🗺️ マッピング: '{trackCircuit}' → '{zone}'");
-                                    }
-                                }
-                            }
-                            
-                            System.Diagnostics.Debug.WriteLine($"✅ JSONゾーンマッピング読み込み完了: {zoneMappings.Count}件");
-                            
-                            // バージョン情報表示
-                            if (root.TryGetProperty("version", out JsonElement versionElement))
-                            {
-                                System.Diagnostics.Debug.WriteLine($"📋 マッピングファイルバージョン: {versionElement.GetString()}");
-                            }
-                        }
-                        else
-                        {
-                            System.Diagnostics.Debug.WriteLine($"❌ JSONファイルに'zoneMappings'プロパティが見つかりません");
-                            System.Diagnostics.Debug.WriteLine($"⚠️ JSONファイルフォーマットエラー - 最小限のマッピングを使用");
-                        }
-                    }
+                    System.Diagnostics.Debug.WriteLine($"✅ {circuit} → {zoneMappings[circuit]}");
                 }
                 else
                 {
-                    System.Diagnostics.Debug.WriteLine($"⚠️ JSONファイルが見つかりません: {jsonPath}");
-                    System.Diagnostics.Debug.WriteLine($"🔄 フォールバック：最小限のマッピングを使用");
+                    System.Diagnostics.Debug.WriteLine($"❌ {circuit}が見つかりません");
                 }
-                
-                // JSONファイルからの読み込みが不十分な場合のみ最小限の補完
-                if (zoneMappings.Count == 0)
-                {
-                    System.Diagnostics.Debug.WriteLine($"🔄 JSONマッピングが空のため、最小限の補完を実行");
-                    LoadMinimalHardcodedZoneMappings();
-                }
-                
-                // サンプル軌道回路をチェック（上り108Tを追加）
-                var sampleCircuits = new[] { "TH76_5LDT", "下り27T", "TH70_1RAT", "上り26T", "TH75_1RET", "上り108T" };
-                foreach (var circuit in sampleCircuits)
-                {
-                    if (zoneMappings.ContainsKey(circuit))
-                    {
-                        System.Diagnostics.Debug.WriteLine($"🎯 {circuit}確認: '{zoneMappings[circuit]}'");
-                    }
-                    else
-                    {
-                        System.Diagnostics.Debug.WriteLine($"❌ {circuit}が見つかりません");
-                    }
-                }
-                
-                System.Diagnostics.Debug.WriteLine($"🗺️ ゾーンマッピング初期化完了: {DateTime.Now:HH:mm:ss.fff}");
             }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"❌ ゾーンマッピング初期化エラー: {ex.Message}");
-                System.Diagnostics.Debug.WriteLine($"❌ スタックトレース: {ex.StackTrace}");
-                
-                // エラー時は最小限のマッピングを使用
-                System.Diagnostics.Debug.WriteLine($"🔄 エラー発生のため、最小限のマッピングを使用");
-                LoadMinimalHardcodedZoneMappings();
-            }
+            
+            System.Diagnostics.Debug.WriteLine($"�️ ハードコードマッピング完了: {DateTime.Now:HH:mm:ss.fff}");
         }
 
         /// <summary>
@@ -1114,6 +1394,10 @@ namespace tatehama_bougo_client
             {
                 System.Diagnostics.Debug.WriteLine($"TrainCrewクライアント初期化エラー: {ex.Message}");
             }
+            
+            // ゾーン移動監視タイマーを開始
+            zoneCheckTimer.Start();
+            System.Diagnostics.Debug.WriteLine("🗺️ ゾーン移動監視タイマー開始");
         }
 
         /// <summary>
@@ -1189,6 +1473,162 @@ namespace tatehama_bougo_client
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"❌ デバッグ表示更新エラー: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// ゾーン変更チェックタイマーのイベントハンドラー
+        /// ゾーン移動を検知し、自動で再発報を行う
+        /// </summary>
+        private async void ZoneCheckTimer_Tick(object sender, EventArgs e)
+        {
+            try
+            {
+                // 防護無線発報中のみチェック
+                if (!isBougoActive)
+                    return;
+
+                // 同時実行を防ぐためのロック
+                if (!Monitor.TryEnter(zoneMovementLock))
+                    return;
+
+                try
+                {
+                    // 現在のゾーンを取得
+                    string currentZone = GetCurrentZone();
+                    
+                    // ゾーンが変更されたかチェック
+                    if (!string.IsNullOrEmpty(previousZone) && 
+                        !string.IsNullOrEmpty(currentZone) && 
+                        previousZone != currentZone)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"🔄 ゾーン移動検知: {previousZone} → {currentZone}");
+                        
+                        // サーバーから現在の受報ゾーンの発報状況をチェック
+                        await CheckActiveFiresOnZoneChange(currentZone);
+                        
+                        // UIに移動を表示
+                        if (InvokeRequired)
+                        {
+                            Invoke(new Action(() => {
+                                if (debugZoneLabel != null)
+                                {
+                                    debugZoneLabel.Text = $"ゾーン移動検知: {previousZone} → {currentZone} 再発報中...";
+                                }
+                            }));
+                        }
+                        else
+                        {
+                            if (debugZoneLabel != null)
+                            {
+                                debugZoneLabel.Text = $"ゾーン移動検知: {previousZone} → {currentZone} 再発報中...";
+                            }
+                        }
+
+                        // 現在の列車番号を取得
+                        string testTrainNumber = currentTrainNumber;
+                        if (string.IsNullOrEmpty(currentTrainNumber) || currentTrainNumber == "--" || currentTrainNumber == "0000")
+                        {
+                            testTrainNumber = "TEST001"; // デバッグ用
+                        }
+
+                        // 1. まず現在の発報を停止
+                        System.Diagnostics.Debug.WriteLine("📢 再発報のため一時停止中...");
+                        
+                        // 前回が複数ゾーンの場合は各ゾーンで停止
+                        var previousZones = previousZone.Split(',').Select(z => z.Trim()).ToList();
+                        foreach (var zone in previousZones)
+                        {
+                            await bougoSignalRClient.StopBougoAsync(testTrainNumber, zone);
+                            System.Diagnostics.Debug.WriteLine($"📢 {zone}で停止通知送信");
+                        }
+
+                        // 少し待機（サーバー処理のため）
+                        await Task.Delay(500);
+
+                        // 2. 新しいゾーンで再発報
+                        System.Diagnostics.Debug.WriteLine($"📢 新ゾーン {currentZone} で再発報開始");
+                        
+                        // 現在が複数ゾーンの場合は各ゾーンで発報
+                        var currentZones = currentZone.Split(',').Select(z => z.Trim()).ToList();
+                        foreach (var zone in currentZones)
+                        {
+                            await bougoSignalRClient.FireBougoAsync(testTrainNumber, zone);
+                            System.Diagnostics.Debug.WriteLine($"📢 {zone}で発報通知送信");
+                            
+                            // 複数ゾーンの場合は少し間隔を空ける
+                            if (currentZones.Count > 1)
+                            {
+                                await Task.Delay(200);
+                            }
+                        }
+
+                        System.Diagnostics.Debug.WriteLine($"✅ ゾーン移動対応完了: {previousZone} → {currentZone}");
+                    }
+
+                    // 前回のゾーンを更新
+                    previousZone = currentZone;
+                    lastZoneCheckTime = DateTime.Now;
+                }
+                finally
+                {
+                    Monitor.Exit(zoneMovementLock);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"❌ ゾーンチェックエラー: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"❌ スタックトレース: {ex.StackTrace}");
+            }
+        }
+
+        /// <summary>
+        /// ゾーン変更時にサーバーからアクティブな発報をチェックし、必要に応じて受報状態を更新
+        /// </summary>
+        /// <param name="newZone">新しいゾーン</param>
+        private async Task CheckActiveFiresOnZoneChange(string newZone)
+        {
+            try
+            {
+                // 新しいゾーンが複数ゾーンの場合は各ゾーンをチェック
+                var newZones = newZone.Split(',').Select(z => z.Trim()).ToList();
+                
+                foreach (var zone in newZones)
+                {
+                    // サーバーから現在のゾーンに影響するアクティブな発報を取得
+                    var affectingFires = await BougoApiClient.GetAffectingFiresAsync(zone);
+                    
+                    if (affectingFires.Any())
+                    {
+                        System.Diagnostics.Debug.WriteLine($"🚨 ゾーン{zone}に影響するアクティブ発報を検出: {affectingFires.Count}件");
+                        
+                        foreach (var fire in affectingFires)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"   - 列車番号: {fire.TrainNumber}, 発報ゾーン: {fire.Zone}, 発報時刻: {fire.FireTime:HH:mm:ss}");
+                            
+                            // UI更新（受報表示を更新）
+                            if (InvokeRequired)
+                            {
+                                Invoke(new Action(() => {
+                                    // 他列車からの発報による受報状態を反映
+                                    OnBougoFiredReceived(fire.TrainNumber, fire.Zone);
+                                }));
+                            }
+                            else
+                            {
+                                OnBougoFiredReceived(fire.TrainNumber, fire.Zone);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"✅ ゾーン{zone}にアクティブな発報なし");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"❌ アクティブ発報チェックエラー: {ex.Message}");
             }
         }
 

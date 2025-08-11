@@ -14,8 +14,8 @@ namespace tatehama_bougo_client
     {
         private HubConnection _connection;
         private bool _isConnected = false;
-        private string _serverUrl = "http://tatehama.turara.me:5233/bougohub"; // プライマリサーバー
-        private readonly string _fallbackServerUrl = "http://192.168.10.101:5233/bougohub"; // フォールバックサーバー
+        private string _serverUrl = "http://192.168.1.1:5233/bougohub"; // プライマリサーバー
+        private readonly string _fallbackServerUrl = "http://192.168.1.1:5233/bougohub"; // フォールバックサーバー
         private bool _autoReconnectEnabled = false; // 自動再接続フラグ
         private readonly int _reconnectDelayMs = 5000; // 再接続間隔（5秒）
         private bool _useFallbackServer = false; // フォールバックサーバーを使用中かどうか
@@ -130,6 +130,11 @@ namespace tatehama_bougo_client
         /// </summary>
         public async Task FireBougoAsync(string trainNumber, string zone)
         {
+            System.Diagnostics.Debug.WriteLine($"🔥 FireBougoAsync開始: trainNumber='{trainNumber}', zone='{zone}'");
+            System.Diagnostics.Debug.WriteLine($"   _isConnected: {_isConnected}");
+            System.Diagnostics.Debug.WriteLine($"   _connection != null: {_connection != null}");
+            System.Diagnostics.Debug.WriteLine($"   接続状態: {_connection?.State}");
+            
             if (!_isConnected || _connection == null)
             {
                 System.Diagnostics.Debug.WriteLine("⚠️ SignalR未接続 - 発報通知スキップ");
@@ -138,16 +143,15 @@ namespace tatehama_bougo_client
 
             try
             {
-                await _connection.InvokeAsync("FireBougo", new { 
-                    TrainNumber = trainNumber, 
-                    Zone = zone 
-                });
-                System.Diagnostics.Debug.WriteLine($"🚨 発報通知送信: {trainNumber} @ {zone}");
+                System.Diagnostics.Debug.WriteLine($"📡 サーバーメソッド'FireBougo'呼び出し開始...");
+                await _connection.InvokeAsync("FireBougo", trainNumber, zone);
+                System.Diagnostics.Debug.WriteLine($"✅ 発報通知送信完了: {trainNumber} @ {zone}");
             }
             catch (Exception ex)
             {
-                OnError?.Invoke($"発報通知エラー: {ex.Message}");
                 System.Diagnostics.Debug.WriteLine($"❌ 発報通知エラー: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"❌ エラー詳細: {ex}");
+                OnError?.Invoke($"発報通知エラー: {ex.Message}");
             }
         }
 
@@ -156,6 +160,11 @@ namespace tatehama_bougo_client
         /// </summary>
         public async Task StopBougoAsync(string trainNumber, string zone)
         {
+            System.Diagnostics.Debug.WriteLine($"🔴 StopBougoAsync開始: trainNumber='{trainNumber}', zone='{zone}'");
+            System.Diagnostics.Debug.WriteLine($"   _isConnected: {_isConnected}");
+            System.Diagnostics.Debug.WriteLine($"   _connection != null: {_connection != null}");
+            System.Diagnostics.Debug.WriteLine($"   接続状態: {_connection?.State}");
+            
             if (!_isConnected || _connection == null)
             {
                 System.Diagnostics.Debug.WriteLine("⚠️ SignalR未接続 - 停止通知スキップ");
@@ -164,16 +173,15 @@ namespace tatehama_bougo_client
 
             try
             {
-                await _connection.InvokeAsync("StopBougo", new { 
-                    TrainNumber = trainNumber, 
-                    Zone = zone 
-                });
-                System.Diagnostics.Debug.WriteLine($"🔴 停止通知送信: {trainNumber} @ {zone}");
+                System.Diagnostics.Debug.WriteLine($"📡 サーバーメソッド'StopBougo'呼び出し開始...");
+                await _connection.InvokeAsync("StopBougo", trainNumber, zone);
+                System.Diagnostics.Debug.WriteLine($"✅ 停止通知送信完了: {trainNumber} @ {zone}");
             }
             catch (Exception ex)
             {
-                OnError?.Invoke($"停止通知エラー: {ex.Message}");
                 System.Diagnostics.Debug.WriteLine($"❌ 停止通知エラー: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"❌ エラー詳細: {ex}");
+                OnError?.Invoke($"停止通知エラー: {ex.Message}");
             }
         }
 
